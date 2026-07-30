@@ -55,9 +55,6 @@ def classify_and_save(content: str):
             
         logger.info(f"Classified as: {category}")
         
-        # Ensure the inbox directory exists (if running on a fresh mount)
-        os.makedirs(INBOX_DIR, exist_ok=True)
-        
         filepath = os.path.join(INBOX_DIR, category)
         
         # Append as a task
