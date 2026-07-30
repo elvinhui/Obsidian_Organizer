@@ -12,8 +12,10 @@ from google.genai import types
 # Load environment variables
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+import json
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 INBOX_DIR = os.getenv("INBOX_DIR")
+IDEAS_DIR = os.getenv("IDEAS_DIR")
 
 # Setup logging
 logging.basicConfig(
@@ -30,43 +32,73 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def classify_and_save(content: str):
-    """Uses Gemini to classify content into an inbox category and writes it."""
-    prompt = f"""你是一个智能分类助手。你需要将用户发送的内容分类到以下三个 Obsidian 收件箱文件中：
-1. AI.md (如果是关于人工智能、大模型、AI工具的内容)
-2. 财商知识.md (如果是关于投资、理财、商业、经济的内容)
-3. 认知提升.md (如果是关于个人成长、思维模型、心理学、其他无法分类的通用内容)
+    """Uses Gemini to classify content into an inbox category or Idea, and writes it."""
+    prompt = f"""你是一个智能分类助手。请根据用户输入，将其分类，并以 JSON 格式返回。
+
+分类选项 (category 字段):
+- "AI.md": 关于人工智能、大模型、AI工具的内容
+- "财商知识.md": 关于投资、理财、商业、经济的内容
+- "IDEA": 灵感、点子、创业想法、可以执行或者孵化的构想
+- "认知提升.md": 个人成长、思维模型、心理学、其他无法分类的通用内容（不算是具体的IDEA的话）
+
+如果 category 是 "IDEA"，你还必须根据以下字段提供结构化内容（否则可以为空）：
+- "idea_title": 给这个灵感起个简短的名字 (核心词+场景)
+- "idea_type": 从中选一个 ["🛠️ 自动化/代码构想 (提升效率)", "💼 职场/硬技能开发 (职业发展)", "💰 财富/资源优化 (资产配置)", "🤔 纯粹的奇思妙想 (生活感悟)"]
+- "idea_feasibility": 从中选一个 ["⭐⭐⭐ 极高 (这周末就能搞定)", "⭐⭐ 中等 (需要查资料/花几天时间)", "⭐ 较低 (先存着，以后再说)"]
+- "idea_summary": 用一句话概括这个灵感
+- "idea_why": 它能解决什么痛点？或者能带来什么好处？(一段话)
+- "idea_next_step": 如果要把这个灵感变成现实，我的第一个微小动作是什么？(一句话)
 
 用户输入内容:
 {content}
-
-请只返回目标文件名（如：AI.md 或 财商知识.md 或 认知提升.md），不要输出任何其他多余字符。
 """
     try:
         response = client.models.generate_content(
             model='gemini-3.5-flash-lite',
             contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.1)
+            config=types.GenerateContentConfig(
+                temperature=0.2,
+                response_mime_type="application/json"
+            )
         )
-        category = response.text.strip()
         
-        # Fallback safeguard
-        if category not in ["AI.md", "财商知识.md", "认知提升.md"]:
-            category = "认知提升.md"
+        data = json.loads(response.text)
+        category = data.get("category", "认知提升.md")
+        
+        if category == "IDEA" and IDEAS_DIR:
+            # Generate the Markdown file for Idea
+            title = data.get("idea_title", "未命名灵感").replace("/", "_").replace("\\", "_")
+            current_time = time.strftime("%Y-%m-%d %H:%M")
+            idea_type = data.get("idea_type", "🤔 纯粹的奇思妙想 (生活感悟)")
+            idea_feasibility = data.get("idea_feasibility", "⭐⭐ 中等 (需要查资料/花几天时间)")
+            idea_summary = data.get("idea_summary", content)
+            idea_why = data.get("idea_why", "")
+            idea_next_step = data.get("idea_next_step", "")
             
-        logger.info(f"Classified as: {category}")
-        
-        filepath = os.path.join(INBOX_DIR, category)
-        
-        # Append as a task
-        # Remove line breaks from content so it fits nicely on one line, or format it
-        safe_content = content.replace('\n', ' ')
-        current_time = time.strftime("%Y-%m-%d %H:%M")
-        task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
-        
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(task_entry)
+            md_content = f"---\n创建时间: {current_time}\n灵感分类: {idea_type}\n落地可行性: {idea_feasibility}\n---\n# 💡 {title}\n\n## 💭 这是个什么点子？(The Idea)\n> **一句话简述：** {idea_summary}\n\n## 🔗 为什么觉得它有用？(The Why)\n> **它能解决什么痛点？或者能带来什么好处？**\n- {idea_why}\n\n## 👣 下一步行动 (Next Step)\n> **如果要把这个灵感变成现实，我的第一个微小动作是什么？**\n- [ ] {idea_next_step}\n"
             
-        return category
+            filepath = os.path.join(IDEAS_DIR, f"💡 {title}.md")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(md_content)
+            logger.info(f"Saved idea to: {filepath}")
+            return "灵感库_Ideas"
+            
+        else:
+            # Fallback safeguard
+            if category not in ["AI.md", "财商知识.md", "认知提升.md"]:
+                category = "认知提升.md"
+                
+            logger.info(f"Classified as: {category}")
+            filepath = os.path.join(INBOX_DIR, category)
+            
+            safe_content = content.replace('\n', ' ')
+            current_time = time.strftime("%Y-%m-%d %H:%M")
+            task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
+            
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(task_entry)
+                
+            return category
     except Exception as e:
         logger.error(f"Failed to classify and save: {e}")
         return None
