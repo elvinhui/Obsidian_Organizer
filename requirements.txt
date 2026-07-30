@@ -1,0 +1,7 @@
+google-genai==2.14.0
+yt-dlp
+youtube-transcript-api
+requests
+PyMuPDF
+Jinja2
+python-dotenv
