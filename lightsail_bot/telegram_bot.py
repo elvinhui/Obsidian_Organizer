@@ -63,7 +63,8 @@ def classify_and_save(content: str):
         # Append as a task
         # Remove line breaks from content so it fits nicely on one line, or format it
         safe_content = content.replace('\n', ' ')
-        task_entry = f"- [ ] {safe_content}\n"
+        current_time = time.strftime("%Y-%m-%d %H:%M")
+        task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
         
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(task_entry)
