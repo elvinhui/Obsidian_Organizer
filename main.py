@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import traceback
+import datetime
 from config import INBOX_DIR
 from scheduler import scan_inbox, mark_task_completed
 from extractor import process_url_or_path
@@ -13,7 +14,12 @@ from idea_to_project import process_ideas_to_projects
 from anki_generator import process_anki_generation
 
 # Configure logging: full detail to file, only important messages to console
-file_handler = logging.FileHandler("ai_brain.log", encoding="utf-8")
+log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
+os.makedirs(log_dir, exist_ok=True)
+current_date = datetime.date.today().strftime("%Y-%m-%d")
+log_file_path = os.path.join(log_dir, f"{current_date}.log")
+
+file_handler = logging.FileHandler(log_file_path, encoding="utf-8")
 file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
