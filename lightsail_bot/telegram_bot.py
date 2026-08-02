@@ -13,9 +13,9 @@ from google.genai import types
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 import json
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-INBOX_DIR = os.getenv("INBOX_DIR")
-IDEAS_DIR = os.getenv("IDEAS_DIR")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+INBOX_DIR = os.getenv("INBOX_DIR", "").strip()
+IDEAS_DIR = os.getenv("IDEAS_DIR", "").strip()
 
 # Setup logging
 logging.basicConfig(
@@ -67,7 +67,9 @@ def classify_and_save(content: str):
         
         if category == "IDEA" and IDEAS_DIR:
             # Generate the Markdown file for Idea
-            title = data.get("idea_title", "未命名灵感").replace("/", "_").replace("\\", "_")
+            import re
+            raw_title = data.get("idea_title", "未命名灵感")
+            title = re.sub(r'[\\/:*?"<>|]', '_', raw_title)
             current_time = time.strftime("%Y-%m-%d %H:%M")
             idea_type = data.get("idea_type", "🤔 纯粹的奇思妙想 (生活感悟)")
             idea_feasibility = data.get("idea_feasibility", "⭐⭐ 中等 (需要查资料/花几天时间)")
