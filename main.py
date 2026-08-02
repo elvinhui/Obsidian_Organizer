@@ -12,6 +12,7 @@ from project_explorer import explore_and_save
 from daily_digest import generate_and_save_digest
 from idea_to_project import process_ideas_to_projects
 from anki_generator import process_anki_generation
+from skill_merger import process_skill_merging
 
 # Configure logging: full detail to file, only important messages to console
 log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
@@ -122,6 +123,14 @@ def main():
             logger.info(f"🚀 Project exploration complete: {result}")
     except Exception as e:
         logger.error(f"Project exploration failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 6: Merge similar skills in the library
+    try:
+        logger.info("🔄 Starting skill library deduplication...")
+        process_skill_merging()
+    except Exception as e:
+        logger.error(f"Skill merging failed: {e}")
         logger.debug(traceback.format_exc())
 
 if __name__ == "__main__":
