@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import shutil
 import logging
 from uuid import uuid4
 from dotenv import load_dotenv
@@ -79,10 +80,16 @@ def classify_and_save(content: str):
             
             md_content = f"---\n创建时间: {current_time}\n灵感分类: {idea_type}\n落地可行性: {idea_feasibility}\n---\n# 💡 {title}\n\n## 💭 这是个什么点子？(The Idea)\n> **一句话简述：** {idea_summary}\n\n## 🔗 为什么觉得它有用？(The Why)\n> **它能解决什么痛点？或者能带来什么好处？**\n- {idea_why}\n\n## 👣 下一步行动 (Next Step)\n> **如果要把这个灵感变成现实，我的第一个微小动作是什么？**\n- [ ] {idea_next_step}\n"
             
-            filepath = os.path.join(IDEAS_DIR, f"{title.strip()}.md")
-            with open(filepath, "a", encoding="utf-8") as f:
+            filename = f"{title.strip()}.md"
+            temp_path = f"/tmp/{uuid4()}_{filename}"
+            final_path = os.path.join(IDEAS_DIR, filename)
+            
+            # Write to local /tmp first, then copy to rclone mount
+            with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(md_content)
-            logger.info(f"Saved idea to: {filepath}")
+            shutil.copy2(temp_path, final_path)
+            os.remove(temp_path)
+            logger.info(f"Saved idea to: {final_path}")
             return "灵感库_Ideas"
             
         else:
