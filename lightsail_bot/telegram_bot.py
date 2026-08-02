@@ -32,14 +32,68 @@ if not all([TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, INBOX_DIR]):
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
+MOUNT_POINT = "/mnt/gdrive"
 
-def force_sync():
-    """Force rclone to flush pending writes to Google Drive immediately."""
+
+def get_rclone_remote():
+    """Detect the configured rclone remote name (e.g. 'gdrive:')."""
     try:
-        subprocess.run(["sync"], check=True, timeout=30)
-        logger.info("Force sync completed.")
+        result = subprocess.run(["rclone", "listremotes"], capture_output=True, text=True, timeout=10)
+        remotes = [r.strip() for r in result.stdout.strip().split('\n') if r.strip()]
+        if remotes:
+            logger.info(f"Detected rclone remote: {remotes[0]}")
+            return remotes[0]
     except Exception as e:
-        logger.warning(f"Force sync failed (non-critical): {e}")
+        logger.warning(f"Could not detect rclone remote: {e}")
+    return None
+
+
+RCLONE_REMOTE = get_rclone_remote()
+
+
+def mount_path_to_remote(mount_path):
+    """Convert a local mount path to an rclone remote path."""
+    rel = os.path.relpath(mount_path, MOUNT_POINT)
+    return f"{RCLONE_REMOTE}{rel}"
+
+
+def rclone_append(filepath, content):
+    """Append content to a Google Drive file using rclone CLI (no FUSE conflicts)."""
+    remote = mount_path_to_remote(filepath)
+    logger.info(f"rclone_append to: {remote}")
+    
+    # Step 1: Read the latest version directly from Google Drive
+    result = subprocess.run(
+        ["rclone", "cat", remote],
+        capture_output=True, timeout=30
+    )
+    existing = result.stdout.decode("utf-8") if result.returncode == 0 else ""
+    
+    # Step 2: Append new content
+    updated = existing + content
+    
+    # Step 3: Upload back atomically via rclone rcat
+    proc = subprocess.run(
+        ["rclone", "rcat", remote],
+        input=updated.encode("utf-8"), timeout=30
+    )
+    if proc.returncode == 0:
+        logger.info("rclone_append succeeded.")
+    else:
+        logger.error(f"rclone_append failed: {proc.stderr}")
+    return proc.returncode == 0
+
+
+def rclone_write_new(local_path, dest_path):
+    """Upload a new local file to Google Drive using rclone CLI."""
+    remote = mount_path_to_remote(dest_path)
+    logger.info(f"rclone_write_new to: {remote}")
+    proc = subprocess.run(["rclone", "copyto", local_path, remote], timeout=30)
+    if proc.returncode == 0:
+        logger.info("rclone_write_new succeeded.")
+    else:
+        logger.error(f"rclone_write_new failed: {proc.stderr}")
+    return proc.returncode == 0
 
 
 def classify_and_save(content: str):
@@ -94,12 +148,11 @@ def classify_and_save(content: str):
             temp_path = f"/tmp/{uuid4()}_{filename}"
             final_path = os.path.join(IDEAS_DIR, filename)
             
-            # Write to local /tmp first, then copy to rclone mount
+            # Write to local /tmp first, then upload via rclone CLI (no FUSE conflicts)
             with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(md_content)
-            shutil.copy2(temp_path, final_path)
+            rclone_write_new(temp_path, final_path)
             os.remove(temp_path)
-            force_sync()
             logger.info(f"Saved idea to: {final_path}")
             return "灵感库_Ideas"
             
@@ -115,10 +168,8 @@ def classify_and_save(content: str):
             current_time = time.strftime("%Y-%m-%d %H:%M")
             task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
             
-            with open(filepath, "a", encoding="utf-8") as f:
-                f.write(task_entry)
-            
-            force_sync()
+            # Use rclone CLI to append (read latest → append → upload)
+            rclone_append(filepath, task_entry)
             return category
     except Exception as e:
         logger.error(f"Failed to classify and save: {e}")
