@@ -2,6 +2,7 @@ import os
 import re
 import time
 import shutil
+import subprocess
 import logging
 from uuid import uuid4
 from dotenv import load_dotenv
@@ -30,6 +31,15 @@ if not all([TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, INBOX_DIR]):
     exit(1)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+
+def force_sync():
+    """Force rclone to flush pending writes to Google Drive immediately."""
+    try:
+        subprocess.run(["sync"], check=True, timeout=30)
+        logger.info("Force sync completed.")
+    except Exception as e:
+        logger.warning(f"Force sync failed (non-critical): {e}")
 
 
 def classify_and_save(content: str):
@@ -89,6 +99,7 @@ def classify_and_save(content: str):
                 f.write(md_content)
             shutil.copy2(temp_path, final_path)
             os.remove(temp_path)
+            force_sync()
             logger.info(f"Saved idea to: {final_path}")
             return "灵感库_Ideas"
             
@@ -106,7 +117,8 @@ def classify_and_save(content: str):
             
             with open(filepath, "a", encoding="utf-8") as f:
                 f.write(task_entry)
-                
+            
+            force_sync()
             return category
     except Exception as e:
         logger.error(f"Failed to classify and save: {e}")
