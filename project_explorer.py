@@ -131,6 +131,8 @@ def explore_and_save():
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(full_content)
+        f.flush()
+        os.fsync(f.fileno())
 
-    logger.info(f"✅ Project ideas saved to {filepath}")
+    logger.info(f"✅ Project ideas saved and synced: {filepath}")
     return filepath

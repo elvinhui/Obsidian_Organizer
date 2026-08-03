@@ -156,7 +156,9 @@ def extract_and_save_open_questions(digest_text: str):
             try:
                 with open(filepath, "w", encoding="utf-8") as f:
                     f.write(content)
-                logger.info(f"Created open question file: {filename}")
+                    f.flush()
+                    os.fsync(f.fileno())
+                logger.info(f"✅ Created and synced open question: {filename}")
             except Exception as e:
                 logger.error(f"Failed to create {filename}: {e}")
 
@@ -199,8 +201,10 @@ def generate_and_save_digest(days: int = 1) -> str | None:
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(full_content)
+        f.flush()
+        os.fsync(f.fileno())
 
-    logger.info(f"✅ Daily digest saved to {filepath}")
+    logger.info(f"✅ Daily digest saved and synced: {filepath}")
     
     # Automatically extract and save open questions
     try:

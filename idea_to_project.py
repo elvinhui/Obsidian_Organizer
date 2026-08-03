@@ -120,6 +120,8 @@ def mark_idea_as_converted(filepath: str, project_filename: str):
             
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
     except Exception as e:
         logger.error(f"Failed to mark idea {filepath} as converted: {e}")
 
@@ -162,8 +164,10 @@ def process_ideas_to_projects():
             
             with open(project_filepath, "w", encoding="utf-8") as f:
                 f.write(full_content)
+                f.flush()
+                os.fsync(f.fileno())
                 
-            logger.info(f"✅ Saved project plan to {project_filepath}")
+            logger.info(f"✅ Saved and synced project plan: {project_filepath}")
             
             # Mark the original idea as converted
             mark_idea_as_converted(idea['filepath'], project_filename)
