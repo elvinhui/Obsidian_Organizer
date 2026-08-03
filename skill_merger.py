@@ -221,7 +221,9 @@ def process_skill_merging():
             
             with open(merged_path, "w", encoding="utf-8") as f:
                 f.write(merged_content)
-            logger.info(f"✅ Merged file saved: {os.path.basename(merged_path)}")
+                f.flush()
+                os.fsync(f.fileno())
+            logger.info(f"✅ Merged file saved and synced: {os.path.basename(merged_path)}")
             
             # Archive originals by adding [已合并] prefix
             for fname in group:

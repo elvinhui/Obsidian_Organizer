@@ -63,6 +63,8 @@ def render_and_save(json_data: Dict[str, Any]) -> str:
     
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(rendered_content)
+        f.flush()
+        os.fsync(f.fileno())
         
-    logger.info(f"Saved generated note to {file_path}")
+    logger.info(f"✅ Saved and synced: {file_path}")
     return file_path
