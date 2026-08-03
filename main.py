@@ -14,6 +14,7 @@ from idea_to_project import process_ideas_to_projects
 from anki_generator import process_anki_generation
 from skill_merger import process_skill_merging
 from auto_linker import process_auto_linking
+from spaced_review import process_spaced_review
 
 # Configure logging: full detail to file, only important messages to console
 log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
@@ -140,6 +141,14 @@ def main():
         process_auto_linking()
     except Exception as e:
         logger.error(f"Auto-linking failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 8: Spaced repetition review scheduler
+    try:
+        logger.info("🧠 Starting Spaced Repetition Scheduler...")
+        process_spaced_review()
+    except Exception as e:
+        logger.error(f"Spaced review failed: {e}")
         logger.debug(traceback.format_exc())
 
 if __name__ == "__main__":
