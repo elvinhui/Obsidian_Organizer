@@ -204,6 +204,11 @@ def process_skill_merging():
         # Merge with Gemini
         try:
             merged = merge_skills_with_gemini(file_contents)
+            
+            # Gemini sometimes returns a list instead of a single dict
+            if isinstance(merged, list) and len(merged) > 0:
+                merged = merged[0]
+                
             merged_title = merged.get("title", f"合并技能_{i+1}")
             merged_content = merged.get("content", "")
             
