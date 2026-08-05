@@ -32,23 +32,34 @@ def normalize_title(filename: str) -> str:
     return name.strip()
 
 
-def title_similarity(a: str, b: str) -> float:
-    """Compute fuzzy similarity between two titles."""
-    return SequenceMatcher(None, a, b).ratio()
+def extract_core_content(filepath: str) -> str:
+    """Extracts the core concept from a skill card for similarity matching."""
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        core_match = re.search(r'##\s*💡.*?\n(.*?)(?=\n##|\Z)', content, re.DOTALL)
+        return core_match.group(1).strip()[:300] if core_match else content[:300]
+    except Exception:
+        return ""
 
+def content_similarity(a: str, b: str) -> float:
+    """Compute fuzzy similarity between two content strings."""
+    return SequenceMatcher(None, a, b).ratio()
 
 def find_similar_groups(filenames: list[str]) -> list[list[str]]:
     """
-    Groups filenames by title similarity.
+    Groups filenames by content similarity.
     Returns a list of groups, where each group contains >= 2 similar filenames.
     """
-    titles = {f: normalize_title(f) for f in filenames}
+    contents = {f: extract_core_content(os.path.join(SKILLS_DIR, f)) for f in filenames}
     
     # Build an adjacency map of similar files
     adjacency: dict[str, set[str]] = {f: set() for f in filenames}
     
     for f1, f2 in combinations(filenames, 2):
-        sim = title_similarity(titles[f1], titles[f2])
+        if not contents[f1] or not contents[f2]:
+            continue
+        sim = content_similarity(contents[f1], contents[f2])
         if sim >= SIMILARITY_THRESHOLD:
             adjacency[f1].add(f2)
             adjacency[f2].add(f1)
@@ -165,8 +176,11 @@ def process_skill_merging():
         logger.warning(f"Skills directory not found: {SKILLS_DIR}")
         return
     
-    # Get all .md files
-    all_files = [f for f in os.listdir(SKILLS_DIR) if f.endswith('.md')]
+    # Get all valid .md files (exclude archived/merged)
+    all_files = [
+        f for f in os.listdir(SKILLS_DIR) 
+        if f.endswith('.md') and not f.startswith('[已合并]')
+    ]
     logger.info(f"Found {len(all_files)} skill files.")
     
     if len(all_files) < 2:
