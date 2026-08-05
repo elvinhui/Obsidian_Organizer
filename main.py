@@ -6,7 +6,7 @@ import datetime
 from config import INBOX_DIR
 from scheduler import scan_inbox, mark_task_completed
 from extractor import process_url_or_path
-from ai_engine import generate_structured_json
+from ai_engine import generate_structured_json, generate_deep_structured_json
 from template_engine import render_and_save
 from project_explorer import explore_and_save
 from daily_digest import generate_and_save_digest
@@ -58,7 +58,12 @@ def process_task(task: dict):
     # 2. AI Structuring
     try:
         context_tag = os.path.basename(file_path)
-        structured_data = generate_structured_json(raw_text, context_tag=context_tag)
+        if len(raw_text) >= 8000:
+            logger.info(f"Text is long ({len(raw_text)} chars). Using deep structuring...")
+            structured_data = generate_deep_structured_json(raw_text, context_tag=context_tag)
+        else:
+            logger.info(f"Text is short ({len(raw_text)} chars). Using fast structuring...")
+            structured_data = generate_structured_json(raw_text, context_tag=context_tag)
         logger.info(f"Successfully structured JSON: {structured_data.get('title')}")
     except Exception as e:
         logger.error(f"Failed to structure content using AI: {e}")
