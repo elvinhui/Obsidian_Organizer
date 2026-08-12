@@ -1,6 +1,6 @@
-# 🚀 Obsidian AI Brain - Telegram Bot 部署指南 (AWS Lightsail)
+# 🚀 Obsidian AI Brain - Telegram Bots 部署指南 (AWS Lightsail)
 
-这份指南将教你如何将写好的 `telegram_bot.py` 部署到 AWS Lightsail (Ubuntu/Debian)，并挂载你的 Google Drive 以实现实时写入。
+这份指南将教你如何将写好的 `telegram_bot.py` (碎片收件箱) 和 `debugger_bot.py` (认知调试器) 部署到 AWS Lightsail (Ubuntu/Debian)，并挂载你的 Google Drive 以实现实时写入。
 
 ## 1. 挂载 Google Drive (rclone)
 
@@ -58,7 +58,7 @@
    sudo systemctl start rclone
    ```
 
-## 2. 部署 Telegram Bot
+## 2. 部署 Telegram Bots
 
 1. 将 `lightsail_bot` 文件夹上传到服务器（例如放在 `~/lightsail_bot`）。
 2. 在服务器上配置环境：
@@ -70,22 +70,23 @@
    pip install -r requirements.txt
    ```
 3. 检查 `.env` 文件，确保配置无误：
-   - `TELEGRAM_BOT_TOKEN` 是你在 BotFather 申请的 token
-   - `GEMINI_API_KEY` 是你的 Gemini API 密钥
-   - `INBOX_DIR` 路径正确（例如 `/mnt/gdrive/Obsidian/Knowledge Base/00 Inbox (收件箱)`）
+   - `TELEGRAM_BOT_TOKEN` : 碎片收件箱 Bot 的 token
+   - `SOCRATES_BOT_TOKEN` : 苏格拉底教练 Bot 的 token
+   - `GEMINI_API_KEY` : 你的 Gemini API 密钥
+   - `INBOX_DIR` : 路径正确（例如 `/mnt/gdrive/Obsidian/Knowledge Base/00 Inbox (收件箱)`）
 
 ## 3. 设置守护进程运行 (systemd)
 
-为了让 Bot 断开 SSH 也能一直运行，且开机自启：
+我们需要将两个 Bot 分别注册为独立的系统服务，这样它们互不干扰，断开 SSH 也能一直运行且开机自启。
 
-1. 编辑系统服务文件：
+### 3.1 碎片收件箱 Bot (`telegram_bot.service`)
    ```bash
    sudo nano /etc/systemd/system/telegram_bot.service
    ```
-2. 填入以下内容（确保路径和用户名一致，假设放在 `/home/ubuntu/lightsail_bot`）：
+   填入：
    ```ini
    [Unit]
-   Description=Obsidian Telegram Bot
+   Description=Obsidian Inbox Telegram Bot
    After=network.target rclone.service
 
    [Service]
@@ -99,16 +100,47 @@
    [Install]
    WantedBy=multi-user.target
    ```
-3. 启动 Bot 服务：
+
+### 3.2 苏格拉底认知教练 Bot (`debugger_bot.service`)
+   ```bash
+   sudo nano /etc/systemd/system/debugger_bot.service
+   ```
+   填入：
+   ```ini
+   [Unit]
+   Description=Obsidian Socrates Coach Bot
+   After=network.target rclone.service
+
+   [Service]
+   Type=simple
+   User=ubuntu
+   WorkingDirectory=/home/ubuntu/lightsail_bot
+   ExecStart=/home/ubuntu/lightsail_bot/venv/bin/python debugger_bot.py
+   Restart=always
+   RestartSec=10
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+### 3.3 启动所有服务
    ```bash
    sudo systemctl daemon-reload
+   # 启动旧的收件箱 Bot
    sudo systemctl enable telegram_bot
    sudo systemctl start telegram_bot
+   # 启动新的苏格拉底 Bot
+   sudo systemctl enable debugger_bot
+   sudo systemctl start debugger_bot
    ```
 
 ## 4. 检查状态
 
-查看 Bot 运行日志，如果没有报错，去 Telegram 给它发条消息测试吧！
+查看 Bot 运行日志，如果没有报错，去 Telegram 给它们发条消息测试吧！
 ```bash
+# 查看收件箱 Bot 日志
 sudo journalctl -u telegram_bot -f
+
+# 查看苏格拉底 Bot 日志
+sudo journalctl -u debugger_bot -f
 ```

@@ -5,14 +5,13 @@ import time
 from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
-from config import GEMINI_API_KEY, SKILLS_DIR, OBSIDIAN_BASE_PATH
+from config import GEMINI_API_KEY, SKILLS_DIR, OBSIDIAN_BASE_PATH, OPEN_QUESTIONS_DIR
 
 logger = logging.getLogger(__name__)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 DIGEST_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "每日复盘")
-OPEN_QUESTIONS_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "开放性思考")
 
 
 def get_recent_skill_cards(days: int = 1) -> list[dict]:
@@ -70,7 +69,7 @@ def generate_digest(cards: list[dict]) -> str:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-flash-lite',
+                model='gemini-3.1-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.5
@@ -94,8 +93,8 @@ def generate_digest(cards: list[dict]) -> str:
 
 def extract_and_save_open_questions(digest_text: str):
     """Parses open questions from the digest and creates individual .md files."""
-    # Find the section "开放性思考"
-    match = re.search(r'###.*开放性思考(.*?)(?:---|$|###)', digest_text, re.DOTALL)
+    # Find the section "开放性思考" (matches ##, ###, or bold)
+    match = re.search(r'(?:#{2,4}|\*\*).*?开放性思考.*?\n(.*?)(?:---|#{2,4}|$)', digest_text, re.DOTALL)
     if not match:
         logger.warning("Could not find '开放性思考' section in digest.")
         return
@@ -113,12 +112,17 @@ def extract_and_save_open_questions(digest_text: str):
     os.makedirs(OPEN_QUESTIONS_DIR, exist_ok=True)
     
     for q in questions:
-        # Try to extract a title from bold text
-        title_match = re.search(r'\*\*(.*?)\*\*[：:]?\s*(.*)', q)
+        # Extract title from before the colon, handling optional bold ** 
+        title_match = re.search(r'^(?:\*\*)?(.*?)(?:\*\*)?[：:]\s*(.*)', q)
         if title_match:
             raw_title = title_match.group(1).strip()
-            safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
-            title = safe_title
+            # If the title is too long, it might not be a real title. Fallback.
+            if len(raw_title) < 40:
+                safe_title = re.sub(r'[\\/*?:"<>|]', "", raw_title)
+                title = safe_title
+            else:
+                safe_title = re.sub(r'[\\/*?:"<>|]', "", q[:15])
+                title = f"开放问题_{safe_title}"
         else:
             safe_title = re.sub(r'[\\/*?:"<>|]', "", q[:15])
             title = f"开放问题_{safe_title}"

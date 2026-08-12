@@ -15,6 +15,16 @@ from anki_generator import process_anki_generation
 from skill_merger import process_skill_merging
 from auto_linker import process_auto_linking
 from spaced_review import process_spaced_review
+from open_questions_processor import process_answered_questions, generate_weekly_cognitive_report
+from conflict_cleaner import process_conflict_resolution
+import uvicorn
+import threading
+from apscheduler.schedulers.background import BackgroundScheduler
+from laap_agent.api import app as laap_app
+from laap_agent.engine import run_daily_simulation
+from rss_filter import process_daily_rss_feeds
+from asset_radar import process_asset_radar
+from cognitive_debugger.telegram_bot import run_telegram_bot
 
 # Configure logging: full detail to file, only important messages to console
 log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
@@ -58,7 +68,10 @@ def process_task(task: dict):
     # 2. AI Structuring
     try:
         context_tag = os.path.basename(file_path)
-        if len(raw_text) >= 8000:
+        if len(raw_text) >= 20000:
+            logger.info(f"Text is MASSIVE ({len(raw_text)} chars). Using Map-Reduce MOC structuring...")
+            structured_data = generate_moc_structured_json(raw_text, context_tag=context_tag)
+        elif len(raw_text) >= 8000:
             logger.info(f"Text is long ({len(raw_text)} chars). Using deep structuring...")
             structured_data = generate_deep_structured_json(raw_text, context_tag=context_tag)
         else:
@@ -83,8 +96,8 @@ def process_task(task: dict):
     success = mark_task_completed(file_path, task['original_line'])
     return success
 
-def main():
-    logger.info("Starting Obsidian AI Brain Engine...")
+def run_pipeline():
+    logger.info("Starting Obsidian AI Brain Engine Pipeline...")
     
     # Phase 1: Process pending inbox tasks
     tasks = scan_inbox(INBOX_DIR)
@@ -155,6 +168,71 @@ def main():
     except Exception as e:
         logger.error(f"Spaced review failed: {e}")
         logger.debug(traceback.format_exc())
+    # Phase 9: Process answered open questions into Insights
+    try:
+        logger.info("💡 Scanning for answered Open Questions...")
+        process_answered_questions()
+    except Exception as e:
+        logger.error(f"Open questions processing failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 10: Weekly Cognitive Report (Runs on Mondays)
+    try:
+        # weekday() == 0 is Monday
+        if datetime.date.today().weekday() == 0:
+            logger.info("📅 Today is Monday! Generating Weekly Cognitive Report...")
+            generate_weekly_cognitive_report()
+    except Exception as e:
+        logger.error(f"Weekly report generation failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 12: Digital Lifeform (LAAP) Simulation
+    try:
+        logger.info("🧬 Running Personal LAAP Agent Forward Simulation...")
+        run_daily_simulation()
+    except Exception as e:
+        logger.error(f"LAAP Agent simulation failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 13: 每日反脆弱认知简报 (Daily Anti-Fragile RSS Filter)
+    try:
+        process_daily_rss_feeds()
+    except Exception as e:
+        logger.error(f"Daily RSS Anti-Fragility Filter failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 14: 资产雷达监控 (Asset Radar)
+    try:
+        process_asset_radar()
+    except Exception as e:
+        logger.error(f"Asset Radar failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    logger.info("Obsidian AI Brain Engine Pipeline Finished.")
+
+def start_pipeline_in_background():
+    """Run the pipeline immediately in a separate thread so it doesn't block the server startup."""
+    threading.Thread(target=run_pipeline, daemon=True).start()
+
+def main():
+    logger.info("Starting Obsidian AI Brain Engine with LAAP Sidecar...")
+    
+    # 1. Setup Scheduler
+    scheduler = BackgroundScheduler()
+    # Run pipeline every 2 hours
+    scheduler.add_job(run_pipeline, 'interval', hours=2)
+    scheduler.start()
+    
+    # 2. Run pipeline once on startup
+    start_pipeline_in_background()
+    
+    # 3. Start Cognitive Debugger Telegram Bot in background
+    logger.info("🤖 Starting Cognitive Debugger Telegram Bot...")
+    threading.Thread(target=run_telegram_bot, daemon=True).start()
+    
+    # 4. Start FastAPI Server
+    logger.info("🚀 Starting LAAP Agent FastAPI Server on port 8000...")
+    uvicorn.run(laap_app, host="0.0.0.0", port=8000, log_level="info")
 
 if __name__ == "__main__":
     main()

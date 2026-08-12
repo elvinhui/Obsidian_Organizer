@@ -150,3 +150,92 @@ def generate_deep_structured_json(raw_text: str, context_tag: str = "") -> dict:
     except Exception as e:
         logger.error(f"Failed to parse JSON from Gemini: {e}\nResponse text: {response.text}")
         raise ValueError("Invalid JSON returned by Gemini API")
+
+def generate_moc_structured_json(raw_text: str, context_tag: str = "") -> dict:
+    """
+    Map-Reduce architecture for extremely long content (e.g. 1-2 hour podcasts).
+    Splits text into chunks, summarizes each chunk (Map), and synthesizes a MOC with subcards (Reduce).
+    """
+    logger.info(f"Starting Map-Reduce structuring for massive text (length: {len(raw_text)})...")
+    
+    # 1. Chunking (Split into roughly 8000 character chunks)
+    chunk_size = 8000
+    chunks = [raw_text[i:i+chunk_size] for i in range(0, len(raw_text), chunk_size)]
+    logger.info(f"Split raw text into {len(chunks)} chunks for processing.")
+    
+    # 2. Map Phase
+    chunk_summaries = []
+    for i, chunk in enumerate(chunks):
+        logger.info(f"Processing chunk {i+1}/{len(chunks)}...")
+        prompt = f"""
+        You are analyzing part {i+1} of a massive {len(chunks)}-part podcast/speech.
+        Extract the most critical insights, facts, arguments, and actionable advice from this segment.
+        Be extremely detailed. Do NOT write a short summary. Retain high information density.
+        
+        Text Segment:
+        {chunk}
+        """
+        response = client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=prompt
+        )
+        chunk_summaries.append(f"--- Chunk {i+1} Insights ---\n" + response.text)
+        
+    # 3. Reduce Phase
+    combined_summaries = "\n\n".join(chunk_summaries)
+    logger.info("Map phase complete. Starting Reduce phase to build MOC...")
+    
+    reduce_prompt = f"""
+    You are an expert Personal Knowledge Manager. You are given a detailed summary of a massive podcast/speech.
+    Your task is to synthesize this into a "Map of Content" (MOC) and several connected sub-topics.
+    
+    Context Tag: {context_tag}
+    
+    Guidelines:
+    1. 'category': Must be one of ["财商知识", "认知提升", "AI技术", "自动化构想", "硬技能开发", "财富优化", "奇思妙想"].
+    2. 'title': A concise, impactful title (Core concept).
+    3. 'tags': A list of relevant tags (e.g., ["#Podcast", "#MOC"]).
+    4. 'core_concepts': A comprehensive overview of the entire podcast's main thesis.
+    5. 'action_sop': A high-level actionable guide.
+    6. 'connections': Bulleted list of the sub-topics that you extracted (to serve as an index).
+    
+    Summaries:
+    {combined_summaries}
+    """
+    
+    import time
+    max_retries = 5
+    response = None
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-3.5-pro',
+                contents=reduce_prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=SkillSchema,
+                    temperature=0.2
+                )
+            )
+            break
+        except Exception as e:
+            err_str = str(e)
+            if any(code in err_str for code in ["429", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE", "quota"]):
+                delay = (2 ** attempt) * 15
+                logger.warning(f"Gemini API limit hit in Reduce phase. Retrying in {delay}s. Error: {err_str}")
+                time.sleep(delay)
+            else:
+                raise
+                
+    if not response:
+        raise Exception("Max retries exceeded for Gemini API Reduce call.")
+        
+    try:
+        result = json.loads(response.text)
+        # Note: We return the SkillSchema structure which will act as the MOC card.
+        # Future enhancement: The template_engine can generate multiple physical files.
+        return result
+    except Exception as e:
+        logger.error(f"Failed to parse JSON from Gemini Reduce phase: {e}\nResponse text: {response.text}")
+        raise ValueError("Invalid JSON returned by Gemini API")
+

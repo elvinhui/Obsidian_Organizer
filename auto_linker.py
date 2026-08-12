@@ -17,7 +17,7 @@ from itertools import combinations
 from google import genai
 from google.genai import types
 
-from config import SKILLS_DIR, GEMINI_API_KEY
+from config import SKILLS_DIR, GEMINI_API_KEY, INSIGHTS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,8 @@ def generate_bridge_note(card_a: dict, card_b: dict) -> bool:
         
         safe_title = re.sub(r'[\\/:*?"<>|]', '-', bridge_title)
         bridge_filename = f"{safe_title}.md"
-        bridge_filepath = os.path.join(SKILLS_DIR, bridge_filename)
+        os.makedirs(INSIGHTS_DIR, exist_ok=True)
+        bridge_filepath = os.path.join(INSIGHTS_DIR, bridge_filename)
         
         if os.path.exists(bridge_filepath):
             logger.info(f"Bridge note already exists: {bridge_filename}")

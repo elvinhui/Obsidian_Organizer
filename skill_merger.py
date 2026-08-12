@@ -14,7 +14,7 @@ from difflib import SequenceMatcher
 from itertools import combinations
 from google import genai
 from google.genai import types
-from config import SKILLS_DIR, GEMINI_API_KEY
+from config import SKILLS_DIR, GEMINI_API_KEY, ARCHIVES_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def merge_skills_with_gemini(file_contents: dict[str, str]) -> dict:
 创建时间: {datetime.now().strftime("%Y-%m-%d %H:%M")}
 知识分类: [从内容中判断，如 财商知识/认知提升/AI技术]
 掌握状态: ⏳ 待复习 (需要安排时间重温)
-标签: [相关标签，如 #投资 #心理学]
+标签: [相关标签，必须用逗号分隔且不能包含井号，如: 投资, 心理学]
 ---
 # [为合并后的知识起一个精炼的标题]
 
@@ -144,7 +144,7 @@ def merge_skills_with_gemini(file_contents: dict[str, str]) -> dict:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-flash-lite',
+                model='gemini-3.1-pro',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -244,14 +244,15 @@ def process_skill_merging():
                 os.fsync(f.fileno())
             logger.info(f"✅ Merged file saved and synced: {os.path.basename(merged_path)}")
             
-            # Archive originals by adding [已合并] prefix
+            # Archive originals by moving them to ARCHIVES_DIR
+            import shutil
+            os.makedirs(ARCHIVES_DIR, exist_ok=True)
             for fname in group:
                 old_path = os.path.join(SKILLS_DIR, fname)
-                new_name = f"[已合并] {fname}"
-                new_path = os.path.join(SKILLS_DIR, new_name)
+                new_path = os.path.join(ARCHIVES_DIR, fname)
                 try:
-                    os.rename(old_path, new_path)
-                    logger.info(f"  📦 Archived: {fname} → {new_name}")
+                    shutil.move(old_path, new_path)
+                    logger.info(f"  📦 Archived: {fname} → {ARCHIVES_DIR}")
                 except Exception as e:
                     logger.error(f"  Failed to archive {fname}: {e}")
             

@@ -10,7 +10,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import yt_dlp
 from google import genai
 
-from config import JINA_API_KEY, GEMINI_API_KEY
+from config import JINA_API_KEY, GEMINI_API_KEY, GROQ_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,22 @@ def resolve_douyin_url(url: str) -> str:
             logger.warning(f"Failed to manually resolve Douyin URL: {e}")
     return url
 
+def get_ffmpeg_location():
+    """Finds ffmpeg installation directory dynamically."""
+    import shutil
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        return os.path.dirname(ffmpeg_path)
+        
+    local_appdata = os.getenv("LOCALAPPDATA", "")
+    if local_appdata:
+        winget_pkg = os.path.join(local_appdata, "Microsoft", "WinGet", "Packages")
+        if os.path.exists(winget_pkg):
+            for root, dirs, files in os.walk(winget_pkg):
+                if "ffmpeg.exe" in files:
+                    return root
+    return None
+
 def extract_short_video(url: str) -> str:
     """
     Downloads audio using yt-dlp and uses Gemini to transcribe it.
@@ -95,6 +111,14 @@ def extract_short_video(url: str) -> str:
     # yt-dlp options
     ydl_opts = {
         'format': 'bestaudio/best',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '32',
+        }],
+        'postprocessor_args': {
+            'ffmpeg': ['-ac', '1', '-ar', '16000']
+        },
         'outtmpl': os.path.join(temp_dir, f"{temp_file_id}.%(ext)s"),
         'cookiefile': os.path.join(os.path.dirname(__file__), 'cookies.txt'),
         'quiet': True,
@@ -102,16 +126,59 @@ def extract_short_video(url: str) -> str:
         'noprogress': True
     }
 
+    ffmpeg_dir = get_ffmpeg_location()
+    if ffmpeg_dir:
+        ydl_opts['ffmpeg_location'] = ffmpeg_dir
+        logger.info(f"Using FFmpeg from: {ffmpeg_dir}")
+
     audio_path = None
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            audio_path = ydl.prepare_filename(info)
+            raw_path = ydl.prepare_filename(info)
+            base_path = os.path.splitext(raw_path)[0]
+            
+            # Postprocessor converts file to .m4a or .mp3, so check those extensions
+            if os.path.exists(f"{base_path}.m4a"):
+                audio_path = f"{base_path}.m4a"
+            elif os.path.exists(f"{base_path}.mp3"):
+                audio_path = f"{base_path}.mp3"
+            else:
+                audio_path = raw_path
             
         if not audio_path or not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file was not created: {audio_path}")
             
+        if os.path.getsize(audio_path) < 1024:
+            raise Exception(f"Extracted audio file is too small or empty (yt-dlp likely failed due to cookies/login). Path: {audio_path}")
+
+            
         import time
+        if GROQ_API_KEY:
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            if file_size_mb > 24.5:
+                logger.warning(f"Audio file is {file_size_mb:.1f}MB, exceeding Groq's 25MB limit. Falling back to Gemini directly.")
+            else:
+                logger.info("GROQ_API_KEY found, using Groq Whisper API for ultra-fast transcription...")
+                import groq
+                groq_client = groq.Groq(api_key=GROQ_API_KEY)
+                
+                try:
+                    with open(audio_path, "rb") as file:
+                        transcription = groq_client.audio.transcriptions.create(
+                            file=(os.path.basename(audio_path), file.read()),
+                            model="whisper-large-v3",
+                            prompt="这是一段中文语音内容，包含演讲、播客或对话，请准确转录：",
+                            response_format="text",
+                            language="zh"
+                        )
+                    if not transcription:
+                        raise ValueError("Groq returned empty transcription.")
+                    return transcription
+                except Exception as e:
+                    logger.warning(f"Groq transcription failed: {e}. Falling back to Gemini...")
+                    # Fallback to Gemini if Groq fails
+        
         logger.info(f"Uploading audio to Gemini for transcription...")
         audio_file = client.files.upload(file=audio_path)
         
@@ -149,9 +216,15 @@ def extract_short_video(url: str) -> str:
             
         
         # Delete file from Gemini storage
-        client.files.delete(name=audio_file.name)
-        
-        return response.text
+        try:
+            client.files.delete(name=audio_file.name)
+        except Exception as e:
+            logger.warning(f"Failed to delete remote Gemini file: {e}")
+            
+        if response and response.text:
+            return response.text
+        else:
+            raise ValueError("Gemini returned empty or blocked transcription response.")
         
     finally:
         # Cleanup local file

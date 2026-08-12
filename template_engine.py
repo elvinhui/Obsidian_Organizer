@@ -46,7 +46,7 @@ def render_and_save(json_data: Dict[str, Any]) -> str:
         "creation_date": creation_date,
         "category": category,
         "status": status_or_feasibility,
-        "tags": " ".join(json_data.get("tags", [])),
+        "tags": "[" + ", ".join(t.replace("#", "") for t in json_data.get("tags", [])) + "]",
         "core_concepts": json_data.get("core_concepts", ""),
         "action_sop": json_data.get("action_sop", ""),
         "connections": json_data.get("connections", "")

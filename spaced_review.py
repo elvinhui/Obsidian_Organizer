@@ -11,7 +11,7 @@ import logging
 import datetime
 from plyer import notification
 import frontmatter
-from config import SKILLS_DIR, OBSIDIAN_BASE_PATH
+from config import SKILLS_DIR, INSIGHTS_DIR, OBSIDIAN_BASE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -49,21 +49,27 @@ def process_spaced_review():
     """Main entry point: process scores, calculate next review, generate list, notify."""
     logger.info("🧠 Starting SM-2 Spaced Repetition Scheduler...")
     
-    if not os.path.exists(SKILLS_DIR):
-        logger.warning(f"Skills directory not found: {SKILLS_DIR}")
+    if not os.path.exists(SKILLS_DIR) and not os.path.exists(INSIGHTS_DIR):
+        logger.warning(f"Neither Skills nor Insights directory found.")
         return None
         
-    all_files = [
-        f for f in os.listdir(SKILLS_DIR)
-        if f.endswith('.md') and not f.startswith('[已合并]') and not f.startswith('[桥接]')
-    ]
+    all_files_with_paths = []
+    
+    if os.path.exists(SKILLS_DIR):
+        for f in os.listdir(SKILLS_DIR):
+            if f.endswith('.md') and not f.startswith('[已合并]') and not f.startswith('[桥接]'):
+                all_files_with_paths.append((f, os.path.join(SKILLS_DIR, f)))
+                
+    if os.path.exists(INSIGHTS_DIR):
+        for f in os.listdir(INSIGHTS_DIR):
+            if f.endswith('.md'):
+                all_files_with_paths.append((f, os.path.join(INSIGHTS_DIR, f)))
     
     today = datetime.date.today()
     due_cards = []
     processed_scores = 0
     
-    for fname in all_files:
-        fpath = os.path.join(SKILLS_DIR, fname)
+    for fname, fpath in all_files_with_paths:
         
         try:
             # Load Markdown file with frontmatter
