@@ -78,7 +78,7 @@ def generate_project_plan(idea: dict) -> str:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-flash-lite',
+                model='gemini-3.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.7

@@ -144,7 +144,7 @@ def merge_skills_with_gemini(file_contents: dict[str, str]) -> dict:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-pro',
+                model='gemini-3.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",

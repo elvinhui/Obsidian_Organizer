@@ -79,7 +79,7 @@ def run_forward_simulation(context: AgentContext, psi5_before: PSI5State) -> Sim
     
     # Call Gemini with structured output
     response = client.models.generate_content(
-        model='gemini-3.1-pro-preview',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             response_mime_type="application/json",

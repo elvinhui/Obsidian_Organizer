@@ -53,7 +53,7 @@ def generate_structured_json(raw_text: str, context_tag: str = "") -> dict:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-flash-lite',
+                model='gemini-3.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -123,7 +123,7 @@ def generate_deep_structured_json(raw_text: str, context_tag: str = "") -> dict:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-pro-preview',
+                model='gemini-3.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",

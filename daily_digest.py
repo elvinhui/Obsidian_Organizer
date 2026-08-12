@@ -69,7 +69,7 @@ def generate_digest(cards: list[dict]) -> str:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.1-flash',
+                model='gemini-3.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.5
