@@ -122,10 +122,29 @@ def generate_insight_from_answer(question: str, answer: str, reality: str) -> tu
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_schema=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "title": types.Schema(type=types.Type.STRING, description="精炼的洞见标题，不要有任何标点或特殊字符"),
+                        "content": types.Schema(type=types.Type.STRING, description="完整的 Markdown 格式正文内容"),
+                    },
+                    required=["title", "content"]
+                ),
                 temperature=0.4
             )
         )
-        data = json.loads(response.text)
+        
+        # Robust JSON parsing
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+            
+        data = json.loads(raw_text)
         return data.get("title", ""), data.get("content", "")
     except Exception as e:
         logger.error(f"Failed to generate insight: {e}")
