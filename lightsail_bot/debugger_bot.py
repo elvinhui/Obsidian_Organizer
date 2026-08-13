@@ -29,6 +29,9 @@ if not all([TELEGRAM_BOT_TOKEN, GEMINI_API_KEY]):
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 DEBUGGER_ARCHIVE_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "认知调试记录")
+COURT_ARCHIVE_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "投资建议")
+
+import asyncio
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -316,6 +319,84 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("🚪 会话已结束。随时可以输入 /debug 重新开始。")
     return ConversationHandler.END
 
+def _sync_court_agent_debate(topic: str):
+    # Proponent
+    proponent_prompt = f"你是一个法庭辩论中的【多头/正方】代言人。现在的命题是：{topic}\n请找出所有支持该决策的理由、潜在的宏观红利、以及乐观情况下的巨大收益。用有说服力、鼓动性的语言陈述，列出核心的3-5个论点。"
+    pro_response = client.models.generate_content(
+        model='gemini-3.5-flash-lite',
+        contents=proponent_prompt,
+        config=types.GenerateContentConfig(temperature=0.7)
+    )
+    proponent_arg = pro_response.text
+
+    # Opponent
+    opponent_prompt = f"你是一个法庭辩论中的【空头/反方】红队。现在的命题是：{topic}\n多头的观点是：\n{proponent_arg}\n请运用芒格反向思维和墨菲定律，极力挑刺，寻找泡沫、黑天鹅和崩盘风险。驳斥多头的逻辑，列出核心的3-5个致命风险点。"
+    opp_response = client.models.generate_content(
+        model='gemini-3.5-flash-lite',
+        contents=opponent_prompt,
+        config=types.GenerateContentConfig(temperature=0.7)
+    )
+    opponent_arg = opp_response.text
+
+    # Judge
+    judge_prompt = f"你是一个法庭辩论中的【中立集成法官】。现在的命题是：{topic}\n\n多头观点：\n{proponent_arg}\n\n空头观点：\n{opponent_arg}\n\n请不要偏袒任何一方。你的任务是：\n1. 提炼双方的共识与根本分歧。\n2. 输出一个复用/防御矩阵（在什么条件下多头成立，在什么条件下空头成立）。\n3. 给出最终的行动建议（Actionable Advice）。"
+    judge_response = client.models.generate_content(
+        model='gemini-3.5-flash-lite',
+        contents=judge_prompt,
+        config=types.GenerateContentConfig(temperature=0.3)
+    )
+    judge_arg = judge_response.text
+    
+    full_markdown = f"# ⚖️ 决策沙盘：{topic}\n\n## 📈 多头 (Proponent)\n{proponent_arg}\n\n## 📉 空头 (Opponent)\n{opponent_arg}\n\n## 👨‍⚖️ 法官裁决 (Judge)\n{judge_arg}"
+    
+    return full_markdown, judge_arg
+
+async def court_agent_debate(topic: str):
+    return await asyncio.to_thread(_sync_court_agent_debate, topic)
+
+async def handle_court(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    topic = " ".join(context.args)
+    if not topic:
+        await update.message.reply_text("⚖️ 请在命令后加上你要评估的决策命题。例如：`/court 当前是否应该清仓美股科技股？`", parse_mode="Markdown")
+        return
+        
+    status_msg = await update.message.reply_text("⚖️ *法庭已开庭*...\n\n🔍 正在传唤多头、空头与法官，大语言模型正在激烈辩论中，请稍候约10-20秒...", parse_mode="Markdown")
+    
+    try:
+        full_md, judge_summary = await court_agent_debate(topic)
+        
+        # Save to local Obsidian
+        os.makedirs(COURT_ARCHIVE_DIR, exist_ok=True)
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
+        
+        # Sanitize topic for filename
+        safe_topic = "".join([c for c in topic[:20] if c.isalpha() or c.isdigit() or c=='\u4e00' <= c <= '\u9fff']).rstrip()
+        if not safe_topic:
+            safe_topic = "Topic"
+        filename = f"法庭决策_{safe_topic}_{timestamp}.md"
+        filepath = os.path.join(COURT_ARCHIVE_DIR, filename)
+        
+        frontmatter = f"---\n创建时间: {date_str}\n标签: #决策沙盘 #红蓝对抗 #多Agent\n---\n"
+        
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(frontmatter + full_md)
+            
+        logger.info(f"Court debate saved to {filepath}")
+        
+        # Send summary to telegram
+        telegram_reply = f"⚖️ *决策沙盘法庭：* {topic}\n\n*👨‍⚖️ 法官判决总结：*\n{judge_summary}\n\n_✅ 完整辩论记录已保存至 Obsidian ({filename})_"
+        
+        # Telegram has a 4096 char limit
+        if len(telegram_reply) > 4000:
+            telegram_reply = telegram_reply[:4000] + "...\n(截断)"
+            
+        await status_msg.edit_text(telegram_reply, parse_mode=None) # parse_mode=None because Gemini output might have unescaped markdown breaking Telegram's MarkdownV2
+        
+    except Exception as e:
+        logger.error(f"Court logic failed: {e}")
+        await status_msg.edit_text(f"❌ 法庭辩论发生错误: {e}")
+
 def main():
     logger.info("🤖 Starting Cognitive Debugger (Socrates) Telegram Bot...")
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
@@ -333,6 +414,7 @@ def main():
     )
     
     application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("court", handle_court))
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
