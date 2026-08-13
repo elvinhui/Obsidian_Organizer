@@ -24,7 +24,6 @@ from laap_agent.api import app as laap_app
 from laap_agent.engine import run_daily_simulation
 from rss_filter import process_daily_rss_feeds
 from asset_radar import process_asset_radar
-from cognitive_debugger.telegram_bot import run_telegram_bot
 
 # Configure logging: full detail to file, only important messages to console
 log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
@@ -226,10 +225,7 @@ def main():
     # 2. Run pipeline once on startup
     start_pipeline_in_background()
     
-    # 3. Start Cognitive Debugger Telegram Bot in background
-    logger.info("🤖 Starting Cognitive Debugger Telegram Bot...")
-    threading.Thread(target=run_telegram_bot, daemon=True).start()
-    
+    # (Telegram bots are now running separately on Lightsail)
     # 4. Start FastAPI Server
     logger.info("🚀 Starting LAAP Agent FastAPI Server on port 8000...")
     uvicorn.run(laap_app, host="0.0.0.0", port=8000, log_level="info")
