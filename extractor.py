@@ -167,7 +167,7 @@ def extract_short_video(url: str) -> str:
                     with open(audio_path, "rb") as file:
                         transcription = groq_client.audio.transcriptions.create(
                             file=(os.path.basename(audio_path), file.read()),
-                            model="whisper-large-v3",
+                            model="whisper-large-v3-turbo",
                             prompt="这是一段中文语音内容，包含演讲、播客或对话，请准确转录：",
                             response_format="text",
                             language="zh"
