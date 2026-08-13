@@ -111,10 +111,31 @@ Article text:
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_schema=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "score": types.Schema(type=types.Type.INTEGER, description="1到10分的信噪比评分"),
+                        "reasoning": types.Schema(type=types.Type.STRING, description="评分理由简述"),
+                        "chinese_title": types.Schema(type=types.Type.STRING, description="翻译或优化后的中文标题"),
+                        "core_thesis": types.Schema(type=types.Type.STRING, description="最核心的1-2句中文论点提炼"),
+                        "key_arguments": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING), description="关键论证点")
+                    },
+                    required=["score", "reasoning", "chinese_title", "core_thesis", "key_arguments"]
+                ),
                 temperature=0.3
             )
         )
-        data = json.loads(response.text)
+        
+        raw_text = response.text.strip()
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.startswith("```"):
+            raw_text = raw_text[3:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+        raw_text = raw_text.strip()
+            
+        data = json.loads(raw_text)
         return data
     except Exception as e:
         logger.error(f"Gemini SNR scoring failed for '{entry['title']}': {e}")
