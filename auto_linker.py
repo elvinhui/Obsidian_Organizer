@@ -76,16 +76,20 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
     embeddings = []
     
     try:
-        response = client.models.embed_content(
-            model='models/gemini-embedding-001', 
-            contents=texts
-        )
-        if hasattr(response, 'embeddings'):
-             for emb in response.embeddings:
-                 embeddings.append(emb.values)
-        elif isinstance(response, list):
-             for emb in response:
-                 embeddings.append(emb.values if hasattr(emb, 'values') else emb)
+        # Batch requests into chunks of 100
+        batch_size = 100
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            response = client.models.embed_content(
+                model='models/gemini-embedding-001', 
+                contents=batch
+            )
+            if hasattr(response, 'embeddings'):
+                 for emb in response.embeddings:
+                     embeddings.append(emb.values)
+            elif isinstance(response, list):
+                 for emb in response:
+                     embeddings.append(emb.values if hasattr(emb, 'values') else emb)
         return embeddings
     except Exception as e:
         logger.error(f"Failed to generate embeddings: {e}")

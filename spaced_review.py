@@ -12,6 +12,9 @@ import datetime
 from plyer import notification
 import frontmatter
 from config import SKILLS_DIR, INSIGHTS_DIR, OBSIDIAN_BASE_PATH
+from auto_linker import extract_card_info, cosine_similarity, generate_embeddings, client, SIMILARITY_THRESHOLD
+import json
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,113 @@ def calculate_sm2(ease: float, interval: int, score: int) -> tuple[float, int]:
     new_ease = max(1.3, new_ease) # Ease should not drop below 1.3
     
     return round(new_ease, 2), new_interval
+
+def enhance_due_cards(due_cards, all_files_with_paths):
+    """
+    Enhance cards that are due today by finding hidden connections
+    with other cards in the vault and injecting them directly into the markdown.
+    """
+    if not due_cards:
+        return
+        
+    logger.info("🧠 Running AI Auto-Enhancer on due cards...")
+    
+    # 1. Extract info for all valid cards
+    all_cards = []
+    for fname, fpath in all_files_with_paths:
+        info = extract_card_info(fpath)
+        if info:
+            all_cards.append(info)
+            
+    if len(all_cards) < 2:
+        return
+        
+    # 2. Generate embeddings
+    texts_to_embed = [c['core'][:500] for c in all_cards]
+    embeddings = generate_embeddings(texts_to_embed)
+    
+    import time
+    
+    for due_card in due_cards:
+        due_idx = -1
+        for i, c in enumerate(all_cards):
+            if c['filepath'] == due_card['filepath']:
+                due_idx = i
+                break
+                
+        if due_idx == -1:
+            continue
+            
+        due_info = all_cards[due_idx]
+        best_sim = -1
+        best_target = None
+        
+        for j, target_info in enumerate(all_cards):
+            if j == due_idx:
+                continue
+                
+            # Skip if already linked in the file (either manually or by previous AI runs)
+            if target_info['filename'].replace('.md', '') in due_info['links']:
+                continue
+                
+            sim = cosine_similarity(embeddings[due_idx], embeddings[j])
+            if sim > best_sim and sim >= SIMILARITY_THRESHOLD:
+                best_sim = sim
+                best_target = target_info
+                
+        if best_target:
+            logger.info(f"Enhancing '{due_info['title']}' with connection to '{best_target['title']}' (Sim: {best_sim:.2f})")
+            
+            prompt = f"""
+            You are an elite Knowledge Graph Architect. 
+            The user is about to review Card A. 
+            I found a hidden structural connection between Card A and Card B.
+            
+            Card A: {due_info['title']}
+            Content: {due_info['core'][:800]}
+            
+            Card B: {best_target['title']}
+            Content: {best_target['core'][:800]}
+            
+            Task: Write a deep, 50-100 word insightful diagnosis explaining the hidden causal chain, 
+            fundamental law, or complementary perspective between them. 
+            Do not greet or explain what you are doing, just provide the direct insight.
+            Output JSON strictly.
+            """
+            try:
+                response = client.models.generate_content(
+                    model='gemini-3.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={"insight": types.Schema(type=types.Type.STRING, description="深度洞见与因果链条分析（中文）")},
+                            required=["insight"]
+                        ),
+                        temperature=0.4
+                    )
+                )
+                
+                raw_text = response.text.strip()
+                if raw_text.startswith("```json"): raw_text = raw_text[7:]
+                if raw_text.startswith("```"): raw_text = raw_text[3:]
+                if raw_text.endswith("```"): raw_text = raw_text[:-3]
+                
+                data = json.loads(raw_text.strip())
+                insight = data.get('insight')
+                
+                if insight:
+                    target_link = f"[[{best_target['filename'].replace('.md', '')}]]"
+                    injection = f"\n\n## 🌐 AI 自动发现的关联\n**发现因果链条/跨界视角**：{target_link}\n> {insight}\n"
+                    
+                    with open(due_info['filepath'], "a", encoding="utf-8") as f:
+                        f.write(injection)
+                        
+                    logger.info(f"✅ Injected AI connection into {due_info['title']}")
+                    time.sleep(4) # rate limit
+            except Exception as e:
+                logger.error(f"Failed to generate auto-enhancement for {due_info['title']}: {e}")
 
 def process_spaced_review():
     """Main entry point: process scores, calculate next review, generate list, notify."""
@@ -136,7 +246,8 @@ def process_spaced_review():
                         due_cards.append({
                             "title": fname.replace('.md', ''),
                             "interval": post.metadata.get('sm2_interval', 0),
-                            "ease": post.metadata.get('sm2_ease', 2.5)
+                            "ease": post.metadata.get('sm2_ease', 2.5),
+                            "filepath": fpath
                         })
                 except Exception as e:
                     logger.debug(f"Date parse error in {fname}: {e}")
@@ -151,6 +262,9 @@ def process_spaced_review():
         return None
         
     logger.info(f"📋 Found {len(due_cards)} cards due for review today!")
+    
+    # Run the AI Enhancer
+    enhance_due_cards(due_cards, all_files_with_paths)
     
     # Sort due cards by interval (newer cards first)
     due_cards.sort(key=lambda x: x["interval"])
