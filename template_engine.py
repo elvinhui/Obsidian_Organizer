@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import logging
 from datetime import datetime
@@ -46,7 +47,7 @@ def render_and_save(json_data: Dict[str, Any]) -> str:
         "creation_date": creation_date,
         "category": category,
         "status": status_or_feasibility,
-        "tags": "[" + ", ".join(t.replace("#", "") for t in json_data.get("tags", [])) + "]",
+        "tags": json.dumps([t if t.startswith("#") else f"#{t}" for t in json_data.get("tags", [])], ensure_ascii=False),
         "core_concepts": json_data.get("core_concepts", ""),
         "action_sop": json_data.get("action_sop", ""),
         "connections": json_data.get("connections", "")
