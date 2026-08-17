@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
 from google.genai import types
+import asyncio
 
 # Load environment variables
 load_dotenv()
@@ -212,7 +213,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info(f"Received text: {text}")
     
     await update.message.reply_text("⏳ 正在思考如何分类并写入库中...")
-    category = classify_and_save(text)
+    category = await asyncio.to_thread(classify_and_save, text)
     
     if category:
         await update.message.reply_text(f"✅ 已成功分类并记录到 [{category}]")
@@ -236,12 +237,12 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.info(f"Voice downloaded to {temp_path}")
         
         prompt = "请将这段语音转写为纯文本。不要做任何润色，直接输出逐字稿即可。"
-        transcript = upload_and_process_with_gemini(temp_path, prompt)
+        transcript = await asyncio.to_thread(upload_and_process_with_gemini, temp_path, prompt)
         
         logger.info(f"Voice transcript: {transcript}")
         await update.message.reply_text(f"🎙️ 听写完成：\n{transcript}\n\n正在进行分类入库...")
         
-        category = classify_and_save(f"[语音记录] {transcript}")
+        category = await asyncio.to_thread(classify_and_save, f"[语音记录] {transcript}")
         if category:
             await update.message.reply_text(f"✅ 已记录到 [{category}]")
             
@@ -271,12 +272,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.info(f"Document downloaded to {temp_path}")
         
         prompt = "请提取并总结这份文档的核心内容，输出一段精准的摘要，字数控制在200字以内。"
-        summary = upload_and_process_with_gemini(temp_path, prompt)
+        summary = await asyncio.to_thread(upload_and_process_with_gemini, temp_path, prompt)
         
         logger.info(f"Document summary: {summary}")
         await update.message.reply_text(f"📄 文档摘要：\n{summary}\n\n正在进行分类入库...")
         
-        category = classify_and_save(f"[文档: {filename}] {summary}")
+        category = await asyncio.to_thread(classify_and_save, f"[文档: {filename}] {summary}")
         if category:
             await update.message.reply_text(f"✅ 已记录到 [{category}]")
             
