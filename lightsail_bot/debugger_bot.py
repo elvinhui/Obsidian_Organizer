@@ -2,6 +2,8 @@ import os
 import sys
 import logging
 import datetime
+import subprocess
+from uuid import uuid4
 from dotenv import load_dotenv
 
 from telegram import Update
@@ -32,6 +34,41 @@ DEBUGGER_ARCHIVE_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "�
 COURT_ARCHIVE_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "投资建议")
 
 import asyncio
+
+# ---------------------------------------------------------------------------
+# Rclone Helpers (avoid direct filesystem writes to prevent Unicode issues)
+# ---------------------------------------------------------------------------
+MOUNT_POINT = "/mnt/gdrive"
+
+def get_rclone_remote():
+    """Detect the configured rclone remote name (e.g. 'gdrive:')."""
+    try:
+        result = subprocess.run(["rclone", "listremotes"], capture_output=True, text=True, timeout=10)
+        remotes = [r.strip() for r in result.stdout.strip().split('\n') if r.strip()]
+        if remotes:
+            logger.info(f"Detected rclone remote: {remotes[0]}")
+            return remotes[0]
+    except Exception as e:
+        logger.warning(f"Could not detect rclone remote: {e}")
+    return None
+
+RCLONE_REMOTE = get_rclone_remote()
+
+def mount_path_to_remote(mount_path):
+    """Convert a local mount path to an rclone remote path."""
+    rel = os.path.relpath(mount_path, MOUNT_POINT)
+    return f"{RCLONE_REMOTE}{rel}"
+
+def rclone_write_new(local_path, dest_path):
+    """Upload a new local file to Google Drive using rclone CLI."""
+    remote = mount_path_to_remote(dest_path)
+    logger.info(f"rclone_write_new to: {remote}")
+    proc = subprocess.run(["rclone", "copyto", local_path, remote], timeout=30)
+    if proc.returncode == 0:
+        logger.info("rclone_write_new succeeded.")
+    else:
+        logger.error(f"rclone_write_new failed: {proc.stderr}")
+    return proc.returncode == 0
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -216,7 +253,6 @@ class CognitiveDebuggerBot:
         return md
 
 def archive_session(dialogue_markdown: str):
-    os.makedirs(DEBUGGER_ARCHIVE_DIR, exist_ok=True)
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H%M")
     date_str = now.strftime("%Y-%m-%d %H:%M")
@@ -227,8 +263,11 @@ def archive_session(dialogue_markdown: str):
     full_content = frontmatter + dialogue_markdown
     
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
+        temp_path = f"/tmp/{uuid4()}_{filename}"
+        with open(temp_path, "w", encoding="utf-8") as f:
             f.write(full_content)
+        rclone_write_new(temp_path, filepath)
+        os.remove(temp_path)
         logger.info(f"Session archived to {filepath}")
         return filepath
     except Exception as e:
@@ -365,13 +404,12 @@ async def handle_court(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         full_md, judge_summary = await court_agent_debate(topic)
         
-        # Save to local Obsidian
-        os.makedirs(COURT_ARCHIVE_DIR, exist_ok=True)
+        # Save via rclone (not direct filesystem) to avoid Unicode folder duplication
         date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
         
         # Sanitize topic for filename
-        safe_topic = "".join([c for c in topic[:20] if c.isalpha() or c.isdigit() or c=='\u4e00' <= c <= '\u9fff']).rstrip()
+        safe_topic = "".join([c for c in topic[:20] if c.isalpha() or c.isdigit() or '\u4e00' <= c <= '\u9fff']).rstrip()
         if not safe_topic:
             safe_topic = "Topic"
         filename = f"法庭决策_{safe_topic}_{timestamp}.md"
@@ -379,8 +417,11 @@ async def handle_court(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         frontmatter = f"---\n创建时间: {date_str}\n标签: #决策沙盘 #红蓝对抗 #多Agent\n---\n"
         
-        with open(filepath, "w", encoding="utf-8") as f:
+        temp_path = f"/tmp/{uuid4()}_{filename}"
+        with open(temp_path, "w", encoding="utf-8") as f:
             f.write(frontmatter + full_md)
+        rclone_write_new(temp_path, filepath)
+        os.remove(temp_path)
             
         logger.info(f"Court debate saved to {filepath}")
         
@@ -391,7 +432,7 @@ async def handle_court(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if len(telegram_reply) > 4000:
             telegram_reply = telegram_reply[:4000] + "...\n(截断)"
             
-        await status_msg.edit_text(telegram_reply, parse_mode=None) # parse_mode=None because Gemini output might have unescaped markdown breaking Telegram's MarkdownV2
+        await status_msg.edit_text(telegram_reply, parse_mode=None)
         
     except Exception as e:
         logger.error(f"Court logic failed: {e}")
