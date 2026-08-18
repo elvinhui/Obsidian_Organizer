@@ -4,10 +4,11 @@ import time
 import shutil
 import subprocess
 import logging
+import datetime
 from uuid import uuid4
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from google import genai
 from google.genai import types
 import asyncio
@@ -34,6 +35,17 @@ if not all([TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, INBOX_DIR]):
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 MOUNT_POINT = "/mnt/gdrive"
+
+OBSIDIAN_BASE_PATH = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian /Knowledge Base").strip()
+DAILY_NOTES_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "日记")
+CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "registered_users.json")
+
+HABITS_CONFIG = [
+    {"id": "meditate", "name": "冥想 2 分钟", "time": "09:00"},
+    {"id": "read", "name": "读书 5 分钟", "time": "14:00"},
+    {"id": "nophone", "name": "不刷手机 5 分钟", "time": "20:00"},
+    {"id": "stare", "name": "发呆 2 分钟", "time": "22:00"}
+]
 
 
 def get_rclone_remote():
@@ -95,6 +107,131 @@ def rclone_write_new(local_path, dest_path):
     else:
         logger.error(f"rclone_write_new failed: {proc.stderr}")
     return proc.returncode == 0
+
+
+# ---------------------------------------------------------------------------
+# Registered Users Persistence (for scheduled pushes)
+# ---------------------------------------------------------------------------
+def register_user(chat_id: int):
+    try:
+        users = []
+        if os.path.exists(CHAT_ID_FILE):
+            with open(CHAT_ID_FILE, "r") as f:
+                users = json.load(f)
+        if chat_id not in users:
+            users.append(chat_id)
+            with open(CHAT_ID_FILE, "w") as f:
+                json.dump(users, f)
+            logger.info(f"Registered new user for scheduled pushes: {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to register user: {e}")
+
+def get_registered_users() -> list[int]:
+    try:
+        if os.path.exists(CHAT_ID_FILE):
+            with open(CHAT_ID_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read registered users: {e}")
+    return []
+
+# ---------------------------------------------------------------------------
+# Daily Note & Habit Check-in Logic (Syncs via rclone)
+# ---------------------------------------------------------------------------
+def get_daily_note_content(date_str: str) -> tuple[str, bool]:
+    """Reads daily note content from Google Drive, or returns a template if missing."""
+    filepath = os.path.join(DAILY_NOTES_DIR, f"{date_str}.md")
+    remote = mount_path_to_remote(filepath)
+    
+    logger.info(f"Reading daily note: {remote}")
+    result = subprocess.run(["rclone", "cat", remote], capture_output=True, timeout=20)
+    if result.returncode == 0:
+        return result.stdout.decode("utf-8"), True
+    else:
+        # Generate initial template
+        template = f"""---
+创建时间: {date_str} 20:00
+标签: #日记 #个人审计
+---
+# {date_str} 日记
+
+## ⚡ 今日微习惯
+"""
+        for h in HABITS_CONFIG:
+            template += f"- [ ] {h['name']}\n"
+            
+        template += "\n## ✍️ 日常记录\n\n"
+        return template, False
+
+def write_daily_note(date_str: str, content: str):
+    """Saves updated daily note content back to Google Drive."""
+    filepath = os.path.join(DAILY_NOTES_DIR, f"{date_str}.md")
+    remote = mount_path_to_remote(filepath)
+    
+    # Write to a temp local file first
+    temp_path = f"/tmp/daily_{date_str}_{uuid4()}.md"
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        
+    logger.info(f"Uploading daily note update: {remote}")
+    subprocess.run(["rclone", "copyto", temp_path, remote], timeout=20)
+    
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+def check_habit_checked_local(date_str: str, habit_name: str, existing_files: set) -> tuple[bool, bool]:
+    """Helper to check if a habit is checked off in a specific daily note."""
+    filename = f"{date_str}.md"
+    if filename not in existing_files:
+        return False, False
+        
+    filepath = os.path.join(DAILY_NOTES_DIR, filename)
+    try:
+        # Note: Since FUSE might download the file when opening, we read it locally
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+        pattern = rf"- \[x\]\s*{re.escape(habit_name)}"
+        if re.search(pattern, content, re.IGNORECASE):
+            return True, True
+        return True, False
+    except Exception as e:
+        logger.debug(f"Failed to read local note {filename} for streak: {e}")
+        return False, False
+
+def calculate_habit_streak(habit_name: str) -> int:
+    """Calculates the current continuous streak of a habit going backwards from today."""
+    today = datetime.date.today()
+    streak = 0
+    
+    # List files once to avoid repeated disk checks
+    existing_files = set()
+    if os.path.exists(DAILY_NOTES_DIR):
+        try:
+            existing_files = set(os.listdir(DAILY_NOTES_DIR))
+        except Exception as e:
+            logger.warning(f"Failed to list daily notes directory: {e}")
+            
+    for day_offset in range(30):
+        check_date = today - datetime.timedelta(days=day_offset)
+        date_str = check_date.strftime("%Y-%m-%d")
+        
+        exists, checked = check_habit_checked_local(date_str, habit_name, existing_files)
+        
+        if day_offset == 0:
+            # If checking today, and it exists and is checked, count it.
+            # If not checked or not existing today, we don't break the streak yet,
+            # we just check starting from yesterday.
+            if exists and checked:
+                streak += 1
+            continue
+            
+        if exists and checked:
+            streak += 1
+        else:
+            # Streak broken!
+            break
+            
+    return streak
 
 
 def classify_and_save(content: str):
@@ -204,7 +341,72 @@ def upload_and_process_with_gemini(file_path: str, prompt: str) -> str:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
-    await update.message.reply_text("你好！我是你的 Obsidian Inbox 助理。发送文字、链接、语音或文档，我会自动帮你分类并写入到 Inbox 中。")
+    chat_id = update.effective_chat.id
+    register_user(chat_id)
+    await update.message.reply_text(
+        "你好！我是你的 Obsidian Inbox 助理。\n\n"
+        "⚡ **微习惯系统已为你激活！**\n"
+        "你可以发送 /habits 开启打卡看板。\n"
+        "我会在以下精力高峰期为你推送原子任务提醒：\n"
+        "1. 09:00 - 🧘 冥想 2 分钟\n"
+        "2. 14:00 - 📚 读书 5 分钟\n"
+        "3. 20:00 - 📵 不刷手机 5 分钟\n"
+        "4. 22:00 - 🌫️ 发呆 2 分钟\n\n"
+        "发送文字、链接、语音或文档，我会自动帮你分类并写入到 Inbox 中。"
+    )
+
+
+async def handle_usage_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    logger.info("Received UsageStats report.")
+    
+    await update.message.reply_text("📊 收到应用使用时长数据，正在进行注意力审计与分类...")
+    
+    # 1. Ask Gemini to audit
+    prompt = f"""
+    You are an elite productivity and digital minimalism auditor (like Ray Dalio / Cal Newport).
+    Analyze the following raw notification containing daily screen time stats for Android.
+    
+    Raw Data:
+    {text}
+    
+    Tasks:
+    1. Identify the total screen time.
+    2. Extract key apps and their usage times.
+    3. Categorize them into:
+       - 🎯 Core Tasks (efficiency, learning, coding, hard skills)
+       - 🛡️ Essential Life/Communication (WeChat, tools, banking, transport)
+       - 📵 Distraction Noise (short videos, games, mindless feeds, social media)
+    4. Calculate the S/N ratio (Signal to Noise Ratio) = Core Tasks duration / Distraction Noise duration. (If denominator is 0, write 'No Noise').
+    5. Write a 2-sentence sharp, constructive CBT audit advice (in Chinese).
+    6. Generate a beautiful markdown report (in Chinese).
+    """
+    
+    try:
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model='gemini-3.5-flash',
+            contents=prompt
+        )
+        report_md = response.text
+        
+        # 2. Save via rclone
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        filepath = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "个人审计", "注意力审计", f"注意力审计_{today_str}.md")
+        
+        # Write to temp file and copy
+        temp_path = f"/tmp/audit_{today_str}_{uuid4()}.md"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(f"---\n创建时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n标签: #注意力审计 #数字极简\n---\n# 📊 注意力审计日报 ({today_str})\n\n" + report_md)
+            
+        subprocess.run(["rclone", "copyto", temp_path, mount_path_to_remote(filepath)], timeout=20)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+        await update.message.reply_text(f"✅ 注意力审计已完成并保存至 Obsidian:\n`注意力审计_{today_str}.md`")
+    except Exception as e:
+        logger.error(f"Failed to audit usage stats: {e}")
+        await update.message.reply_text(f"❌ 注意力审计失败: {e}")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -212,6 +414,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     text = update.message.text
     logger.info(f"Received text: {text}")
     
+    if text.startswith("[UsageStats]"):
+        await handle_usage_stats(update, context)
+        return
+        
     await update.message.reply_text("⏳ 正在思考如何分类并写入库中...")
     category = await asyncio.to_thread(classify_and_save, text)
     
@@ -219,6 +425,80 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"✅ 已成功分类并记录到 [{category}]")
     else:
         await update.message.reply_text("❌ 分类或写入失败，请检查服务器日志。")
+
+
+async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send today's habits list with inline check-in buttons."""
+    keyboard = []
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    content, existed = get_daily_note_content(today_str)
+    
+    # If note didn't exist, write template first
+    if not existed:
+        write_daily_note(today_str, content)
+        
+    # Check which habits are completed today
+    for h in HABITS_CONFIG:
+        pattern_done = rf"- \[x\]\s*{re.escape(h['name'])}"
+        is_done = re.search(pattern_done, content, re.IGNORECASE) is not None
+        
+        status_icon = "✅" if is_done else "⬜"
+        button_text = f"{status_icon} {h['name']}"
+        callback_data = f"habit_done:{h['id']}"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+        
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "⚡ **今日微习惯打卡看板**\n请选择你已完成的原子习惯：",
+        reply_markup=reply_markup
+    )
+
+
+async def habit_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles clicks on inline buttons for habit check-ins."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    if not data.startswith("habit_done:"):
+        return
+        
+    habit_id = data.split(":")[1]
+    habit = next((h for h in HABITS_CONFIG if h["id"] == habit_id), None)
+    if not habit:
+        return
+        
+    habit_name = habit["name"]
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    
+    content, existed = get_daily_note_content(today_str)
+    
+    # Check if already completed
+    pattern_done = rf"- \[x\]\s*{re.escape(habit_name)}"
+    if re.search(pattern_done, content, re.IGNORECASE):
+        await query.edit_message_text(f"✅ 你今天已经完成过【{habit_name}】了！")
+        return
+        
+    # Replace - [ ] with - [x]
+    pattern_todo = rf"- \[ \]\s*{re.escape(habit_name)}"
+    updated_content = re.sub(pattern_todo, f"- [x] {habit_name}", content, flags=re.IGNORECASE)
+    
+    # Write back
+    write_daily_note(today_str, updated_content)
+    
+    # Calculate Streak
+    streak = calculate_habit_streak(habit_name)
+    multiplier = (1.05 ** streak) if streak > 0 else 1.0
+    
+    reply_text = (
+        f"🎉 **打卡成功！多巴胺 +1**\n\n"
+        f"你已成功完成：**{habit_name}**\n"
+        f"🔥 连续打卡天数：`{streak}` 天\n"
+        f"📈 习惯复利系数：`{multiplier:.2f}x` (1.05^Streak)\n\n"
+        f"*“每一天的微小累积，终将引发质变的洪流。”*"
+    )
+    
+    await query.edit_message_text(reply_text, parse_mode="Markdown")
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -289,6 +569,29 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             os.remove(temp_path)
 
 
+def make_push_job(habit_item):
+    async def push_job(context: ContextTypes.DEFAULT_TYPE):
+        users = get_registered_users()
+        if not users:
+            logger.warning("No registered users to push habit reminders to.")
+            return
+            
+        keyboard = [[InlineKeyboardButton("✅ 搞定打卡", callback_data=f"habit_done:{habit_item['id']}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        for chat_id in users:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"⚡ **微习惯时间提醒**\n现在是：**{habit_item['time']}**\n\n该去完成你的微习惯啦：\n👉 **{habit_item['name']}**\n\n最小化动作，立刻起步！",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send habit push to {chat_id}: {e}")
+    return push_job
+
+
 def main() -> None:
     """Start the bot."""
     # Create the Application and pass it your bot's token.
@@ -296,11 +599,22 @@ def main() -> None:
 
     # Commands
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("habits", habits_command))
 
     # Messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_handler(MessageHandler(filters.VOICE, handle_voice))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+    # Callbacks
+    application.add_handler(CallbackQueryHandler(habit_callback_handler, pattern="^habit_done:"))
+
+    # Scheduled Pushes (UTC+8 / China Time)
+    for h in HABITS_CONFIG:
+        t_hour, t_min = map(int, h["time"].split(":"))
+        t_time = datetime.time(hour=t_hour, minute=t_min, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+        job_func = make_push_job(h)
+        application.job_queue.run_daily(job_func, time=t_time, name=f"push_habit_{h['id']}")
 
     logger.info("Bot is polling...")
     # Run the bot until the user presses Ctrl-C
