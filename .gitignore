@@ -9,3 +9,11 @@ venv/
 scratch/
 *.mp4
 *.webm
+cookies.txt
+cookies.json
+AI brain log/
+test*.wav
+*.wav
+*.mp3
+*.m4a
+*.ogg
