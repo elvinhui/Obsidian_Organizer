@@ -18,6 +18,7 @@ class SkillSchema(typing.TypedDict):
     core_concepts: str
     action_sop: str
     connections: str
+    viewpoints_timestamps: str
 
 def generate_structured_json(raw_text: str, context_tag: str = "") -> dict:
     """
@@ -40,6 +41,7 @@ def generate_structured_json(raw_text: str, context_tag: str = "") -> dict:
     4. 'core_concepts': A one-sentence summary of the core insight.
     5. 'action_sop': Bulleted list of actionable steps. How can this be applied? What is the SOP?
     6. 'connections': Bulleted list of related ideas, potential blind spots, or reflections.
+    7. 'viewpoints_timestamps': If the raw text contains timestamps (like [MM:SS] or [HH:MM:SS]), extract a bulleted list of 5-10 key viewpoints/quotes with their exact timestamps (e.g., "- [12:34] Golden quote/viewpoint summary"). If no timestamps are present in the raw text, leave this field empty.
 
     Raw Text to process:
     --------------------
@@ -111,6 +113,7 @@ def generate_deep_structured_json(raw_text: str, context_tag: str = "") -> dict:
     4. 'core_concepts': A dense, comprehensive summary of the core insights (can be 2-3 sentences).
     5. 'action_sop': A detailed, bulleted SOP. Step-by-step actionable guide.
     6. 'connections': Bulleted list of related ideas, potential blind spots, and edge cases.
+    7. 'viewpoints_timestamps': If the raw text contains timestamps (like [MM:SS] or [HH:MM:SS]), extract a dense bulleted list of 5-10 key viewpoints/quotes with their exact timestamps (e.g., "- [12:34] Golden quote/viewpoint summary"). If no timestamps are present in the raw text, leave this field empty.
 
     Raw Text to process:
     --------------------
@@ -198,6 +201,7 @@ def generate_moc_structured_json(raw_text: str, context_tag: str = "") -> dict:
     4. 'core_concepts': A comprehensive overview of the entire podcast's main thesis.
     5. 'action_sop': A high-level actionable guide.
     6. 'connections': Bulleted list of the sub-topics that you extracted (to serve as an index).
+    7. 'viewpoints_timestamps': If the raw text contains timestamps (like [MM:SS] or [HH:MM:SS]), extract a dense bulleted list of 5-10 key viewpoints/quotes with their exact timestamps (e.g., "- [12:34] Golden quote/viewpoint summary"). If no timestamps are present in the raw text, leave this field empty.
     
     Summaries:
     {combined_summaries}

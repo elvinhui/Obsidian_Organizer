@@ -15,3 +15,8 @@
 
 ## 🔗 盲区与关联反思 (Connections)
 {{ connections }}
+
+{% if viewpoints_timestamps %}
+## ⏱️ 核心观点时间戳 (Key Viewpoints & Timestamps)
+{{ viewpoints_timestamps }}
+{% endif %}

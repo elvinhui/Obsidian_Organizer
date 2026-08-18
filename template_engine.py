@@ -50,7 +50,8 @@ def render_and_save(json_data: Dict[str, Any]) -> str:
         "tags": json.dumps([t if t.startswith("#") else f"#{t}" for t in json_data.get("tags", [])], ensure_ascii=False),
         "core_concepts": json_data.get("core_concepts", ""),
         "action_sop": json_data.get("action_sop", ""),
-        "connections": json_data.get("connections", "")
+        "connections": json_data.get("connections", ""),
+        "viewpoints_timestamps": json_data.get("viewpoints_timestamps", "")
     }
     
     rendered_content = template.render(**render_data)

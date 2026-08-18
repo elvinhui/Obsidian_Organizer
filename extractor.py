@@ -165,16 +165,24 @@ def extract_short_video(url: str) -> str:
                 
                 try:
                     with open(audio_path, "rb") as file:
-                        transcription = groq_client.audio.transcriptions.create(
+                        transcription_obj = groq_client.audio.transcriptions.create(
                             file=(os.path.basename(audio_path), file.read()),
                             model="whisper-large-v3-turbo",
                             prompt="这是一段中文语音内容，包含演讲、播客或对话，请准确转录：",
-                            response_format="text",
+                            response_format="verbose_json",
                             language="zh"
                         )
-                    if not transcription:
-                        raise ValueError("Groq returned empty transcription.")
-                    return transcription
+                    if not transcription_obj or not hasattr(transcription_obj, 'segments'):
+                        raise ValueError("Groq returned empty transcription or missing segments.")
+                    
+                    # Process segments and insert timestamps
+                    formatted_segments = []
+                    for seg in transcription_obj.segments:
+                        start_sec = int(seg.get('start', 0))
+                        m = start_sec // 60
+                        s = start_sec % 60
+                        formatted_segments.append(f"[{m:02d}:{s:02d}] {seg.get('text', '').strip()}")
+                    return "\n".join(formatted_segments)
                 except Exception as e:
                     logger.warning(f"Groq transcription failed: {e}. Falling back to Gemini...")
                     # Fallback to Gemini if Groq fails
@@ -190,8 +198,11 @@ def extract_short_video(url: str) -> str:
         if audio_file.state.name == "FAILED":
             raise Exception(f"File processing failed on Gemini servers for {audio_path}")
         
-        # We only want the transcription for now (we'll structure it later)
-        prompt = "Please transcribe the audio into text exactly as spoken. If there are multiple speakers, just transcribe the content. Do not summarize, just provide the full transcript."
+        # We want the transcription with timestamps
+        prompt = """Please transcribe the audio into text exactly as spoken. 
+        Crucially, you must prepend timestamps in the format [MM:SS] (or [HH:MM:SS] if longer than an hour) 
+        at the beginning of every major point, topic transition, or every 1-2 minutes. 
+        Do not summarize, just provide the full transcript with these timestamps."""
         
         max_retries = 5
         response = None

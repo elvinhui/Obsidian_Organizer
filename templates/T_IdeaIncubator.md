@@ -15,4 +15,9 @@
 
 ## 👣 下一步行动 (Next Step)
 > **如果要把这个灵感变成现实，我的第一个微小动作是什么？**
-{{ action_sop }}
+- [ ] {{ action_sop }}
+
+{% if viewpoints_timestamps %}
+## ⏱️ 核心观点时间戳 (Key Viewpoints & Timestamps)
+{{ viewpoints_timestamps }}
+{% endif %}
