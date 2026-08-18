@@ -40,7 +40,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 MOUNT_POINT = "/mnt/gdrive"
 
-OBSIDIAN_BASE_PATH = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian /Knowledge Base").strip()
+OBSIDIAN_BASE_PATH = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian/Knowledge Base").strip()
 DAILY_NOTES_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "日记")
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "registered_users.json")
 
