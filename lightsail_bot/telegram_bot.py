@@ -5,6 +5,10 @@ import shutil
 import subprocess
 import logging
 import datetime
+import threading
+import urllib.request
+import urllib.parse
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from uuid import uuid4
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -46,6 +50,116 @@ HABITS_CONFIG = [
     {"id": "nophone", "name": "不刷手机 5 分钟", "time": "20:00"},
     {"id": "stare", "name": "发呆 2 分钟", "time": "22:00"}
 ]
+
+
+# ---------------------------------------------------------------------------
+# Background HTTP Server for Mobile metrics (StayFree + MacroDroid HTTP POST)
+# ---------------------------------------------------------------------------
+def send_telegram_message(chat_id: int, text: str):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = json.dumps({"chat_id": chat_id, "text": text}).encode('utf-8')
+    req = urllib.request.Request(
+        url, data=data, 
+        headers={'Content-Type': 'application/json'},
+        method='POST'
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            logger.info("Audit telegram notification sent successfully.")
+    except Exception as e:
+        logger.error(f"Failed to send telegram notification: {e}")
+
+def process_audit_and_notify(text: str):
+    logger.info("Starting background audit for received UsageStats...")
+    
+    # 1. Ask Gemini to audit
+    prompt = f"""
+    You are an elite productivity and digital minimalism auditor (like Ray Dalio / Cal Newport).
+    Analyze the following raw notification containing daily screen time stats for Android.
+    
+    Raw Data:
+    {text}
+    
+    Tasks:
+    1. Identify the total screen time.
+    2. Extract key apps and their usage times.
+    3. Categorize them into:
+       - 🎯 Core Tasks (efficiency, learning, coding, hard skills)
+       - 🛡️ Essential Life/Communication (WeChat, tools, banking, transport)
+       - 📵 Distraction Noise (short videos, games, mindless feeds, social media)
+    4. Calculate the S/N ratio (Signal to Noise Ratio) = Core Tasks duration / Distraction Noise duration. (If denominator is 0, write 'No Noise').
+    5. Write a 2-sentence sharp, constructive CBT audit advice (in Chinese).
+    6. Generate a beautiful markdown report (in Chinese).
+    """
+    
+    try:
+        # Notify immediately that processing started
+        users = get_registered_users()
+        for chat_id in users:
+            send_telegram_message(chat_id, "📊 收到手机应用使用时长数据，正在进行注意力审计与分类...")
+
+        response = client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=prompt
+        )
+        report_md = response.text
+        
+        # 2. Save via rclone
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        filepath = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "个人审计", "注意力审计", f"注意力审计_{today_str}.md")
+        
+        # Write to temp file and copy
+        temp_path = f"/tmp/audit_{today_str}_{uuid4()}.md"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(f"---\n创建时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n标签: #注意力审计 #数字极简\n---\n# 📊 注意力审计日报 ({today_str})\n\n" + report_md)
+            
+        subprocess.run(["rclone", "copyto", temp_path, mount_path_to_remote(filepath)], timeout=20)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+            
+        logger.info(f"Attention audit report saved to GDrive: {filepath}")
+        
+        # 3. Notify users via TG
+        if users:
+            tg_text = f"✅ **今日注意力审计已完成！**\n\n报告已同步至 Obsidian：\n`注意力审计_{today_str}.md`"
+            for chat_id in users:
+                send_telegram_message(chat_id, tg_text)
+                
+    except Exception as e:
+        logger.error(f"Failed background audit: {e}")
+        users = get_registered_users()
+        for chat_id in users:
+            send_telegram_message(chat_id, f"❌ 注意力审计失败: {e}")
+
+class UsageStatsHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Clean console output
+        logger.info("%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), format%args))
+
+    def do_POST(self):
+        if self.path == "/usagestats":
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length).decode('utf-8')
+                data = json.loads(post_data)
+                text = data.get("text", "")
+                
+                # Send the response immediately to MacroDroid (no timeout)
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "received"}).encode('utf-8'))
+                
+                # Process in a background thread to not block HTTP connection
+                threading.Thread(target=process_audit_and_notify, args=(text,), daemon=True).start()
+                
+            except Exception as e:
+                logger.error(f"Error in web server POST handler: {e}")
+                self.send_response(400)
+                self.end_headers()
+        else:
+            self.send_response(404)
+            self.end_headers()
 
 
 def get_rclone_remote():
@@ -596,6 +710,17 @@ def make_push_job(habit_item):
 
 def main() -> None:
     """Start the bot."""
+    # Start background HTTP server for mobile metrics (StayFree + MacroDroid)
+    def start_http_server():
+        try:
+            server = HTTPServer(('0.0.0.0', 8080), UsageStatsHandler)
+            logger.info("🚀 Background HTTP server listening on port 8080 for MacroDroid...")
+            server.serve_forever()
+        except Exception as e:
+            logger.error(f"Failed to start background HTTP server: {e}")
+            
+    threading.Thread(target=start_http_server, daemon=True).start()
+
     # Create the Application and pass it your bot's token.
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
