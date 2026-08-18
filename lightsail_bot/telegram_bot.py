@@ -344,15 +344,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     register_user(chat_id)
     await update.message.reply_text(
-        "你好！我是你的 Obsidian Inbox 助理。\n\n"
-        "⚡ **微习惯系统已为你激活！**\n"
-        "你可以发送 /habits 开启打卡看板。\n"
-        "我会在以下精力高峰期为你推送原子任务提醒：\n"
-        "1. 09:00 - 🧘 冥想 2 分钟\n"
-        "2. 14:00 - 📚 读书 5 分钟\n"
-        "3. 20:00 - 📵 不刷手机 5 分钟\n"
-        "4. 22:00 - 🌫️ 发呆 2 分钟\n\n"
-        "发送文字、链接、语音或文档，我会自动帮你分类并写入到 Inbox 中。"
+        f"你好！我是你的 Obsidian Inbox 助理。\n\n"
+        f"⚡ **微习惯系统已为你激活！**\n"
+        f"ℹ️ **你的 Chat ID 是**：`{chat_id}` *(设置 MacroDroid 时可用此 ID)*\n\n"
+        f"你可以发送 /habits 开启打卡看板。\n"
+        f"我会在以下精力高峰期为你推送原子任务提醒：\n"
+        f"1. 09:00 - 🧘 冥想 2 分钟\n"
+        f"2. 14:00 - 📚 读书 5 分钟\n"
+        f"3. 20:00 - 📵 不刷手机 5 分钟\n"
+        f"4. 22:00 - 🌫️ 发呆 2 分钟\n\n"
+        f"发送文字、链接、语音或文档，我会自动帮你分类并写入到 Inbox 中。",
+        parse_mode="Markdown"
     )
 
 
