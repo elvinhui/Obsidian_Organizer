@@ -26,6 +26,8 @@ LAAP_IDENTITY_FILE = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "数
 DAILY_BRIEFING_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "每日简报")
 RSS_FEEDS_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "RSS Feed")
 ASSET_RADAR_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "资产雷达")
+POLAR_STAR_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "北极星看板")
+SKILL_COMPOUNDING_DIR = os.path.join(POLAR_STAR_DIR, "技能复利记录")
 
 # Fallback: if directories do not exist, we can create them (optional)
 # os.makedirs(INBOX_DIR, exist_ok=True)

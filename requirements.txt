@@ -5,3 +5,7 @@ requests
 PyMuPDF
 Jinja2
 python-dotenv
+yfinance
+pandas
+matplotlib
+python-frontmatter

@@ -24,6 +24,7 @@ from laap_agent.api import app as laap_app
 from laap_agent.engine import run_daily_simulation
 from rss_filter import process_daily_rss_feeds
 from asset_radar import process_asset_radar
+from polar_star_dashboard import generate_dashboard
 
 # Configure logging: full detail to file, only important messages to console
 log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
@@ -205,6 +206,14 @@ def run_pipeline():
         process_asset_radar()
     except Exception as e:
         logger.error(f"Asset Radar failed: {e}")
+        logger.debug(traceback.format_exc())
+
+    # Phase 15: 北极星看板生成 (Polar Star Dashboard)
+    try:
+        logger.info("🧭 Running North Star Dashboard Generator...")
+        generate_dashboard()
+    except Exception as e:
+        logger.error(f"North Star Dashboard generation failed: {e}")
         logger.debug(traceback.format_exc())
 
     logger.info("Obsidian AI Brain Engine Pipeline Finished.")
