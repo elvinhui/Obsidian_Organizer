@@ -612,11 +612,14 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(habit_callback_handler, pattern="^habit_done:"))
 
     # Scheduled Pushes (UTC+8 / China Time)
-    for h in HABITS_CONFIG:
-        t_hour, t_min = map(int, h["time"].split(":"))
-        t_time = datetime.time(hour=t_hour, minute=t_min, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
-        job_func = make_push_job(h)
-        application.job_queue.run_daily(job_func, time=t_time, name=f"push_habit_{h['id']}")
+    if application.job_queue:
+        for h in HABITS_CONFIG:
+            t_hour, t_min = map(int, h["time"].split(":"))
+            t_time = datetime.time(hour=t_hour, minute=t_min, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+            job_func = make_push_job(h)
+            application.job_queue.run_daily(job_func, time=t_time, name=f"push_habit_{h['id']}")
+    else:
+        logger.warning("JobQueue is not initialized! Scheduled pushes will not work. Please install python-telegram-bot[job-queue] on the server.")
 
     logger.info("Bot is polling...")
     # Run the bot until the user presses Ctrl-C
