@@ -40,7 +40,13 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 MOUNT_POINT = "/mnt/gdrive"
 
-OBSIDIAN_BASE_PATH = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian/Knowledge Base").strip()
+raw_base_path = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian/Knowledge Base").strip()
+# Robust normalization: Split by / or \ and strip spaces from all components
+path_parts = [p.strip() for p in re.split(r'[/\\]', raw_base_path) if p.strip()]
+if raw_base_path.startswith("/") or raw_base_path.startswith("\\"):
+    OBSIDIAN_BASE_PATH = "/" + "/".join(path_parts)
+else:
+    OBSIDIAN_BASE_PATH = "/".join(path_parts)
 DAILY_NOTES_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "日记")
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "registered_users.json")
 

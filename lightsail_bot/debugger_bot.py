@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import logging
 import datetime
 import subprocess
@@ -18,7 +19,14 @@ load_dotenv()
 # We use a distinct token for the Socrates bot so it can run alongside the main inbox bot
 TELEGRAM_BOT_TOKEN = os.getenv("SOCRATES_BOT_TOKEN", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-OBSIDIAN_BASE_PATH = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian/Knowledge Base")
+
+raw_base_path = os.getenv("OBSIDIAN_BASE_PATH", "/mnt/gdrive/Obsidian/Knowledge Base").strip()
+# Robust normalization: Split by / or \ and strip spaces from all components
+path_parts = [p.strip() for p in re.split(r'[/\\]', raw_base_path) if p.strip()]
+if raw_base_path.startswith("/") or raw_base_path.startswith("\\"):
+    OBSIDIAN_BASE_PATH = "/" + "/".join(path_parts)
+else:
+    OBSIDIAN_BASE_PATH = "/".join(path_parts)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
