@@ -99,6 +99,13 @@ def process_task(task: dict):
 def run_pipeline():
     logger.info("Starting Obsidian AI Brain Engine Pipeline...")
     
+    # Phase 0: Resolve Google Drive conflicts
+    try:
+        process_conflict_resolution()
+    except Exception as e:
+        logger.error(f"Conflict resolution failed: {e}")
+        logger.debug(traceback.format_exc())
+
     # Phase 1: Process pending inbox tasks
     tasks = scan_inbox(INBOX_DIR)
     if not tasks:
