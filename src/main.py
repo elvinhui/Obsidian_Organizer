@@ -40,7 +40,13 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
-logging.basicConfig(level=logging.INFO, handlers=[console_handler, file_handler])
+# Force root logger configuration to bypass module basicConfig blocks
+root_logger = logging.getLogger()
+for h in root_logger.handlers[:]:
+    root_logger.removeHandler(h)
+root_logger.addHandler(console_handler)
+root_logger.addHandler(file_handler)
+root_logger.setLevel(logging.INFO)
 
 # Silence noisy third-party loggers
 logging.getLogger("httpx").setLevel(logging.WARNING)

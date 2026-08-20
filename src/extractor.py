@@ -44,7 +44,7 @@ def extract_youtube(url: str) -> str:
     if not video_id:
         raise ValueError(f"Could not extract YouTube video ID from URL: {url}")
 
-    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+    transcript_list = YouTubeTranscriptApi().list(video_id)
     
     # Try fetching Chinese first, then fallback to English
     transcript = None
@@ -120,7 +120,6 @@ def extract_short_video(url: str) -> str:
             'ffmpeg': ['-ac', '1', '-ar', '16000']
         },
         'outtmpl': os.path.join(temp_dir, f"{temp_file_id}.%(ext)s"),
-        'cookiefile': os.path.join(os.path.dirname(__file__), 'cookies.txt'),
         'quiet': True,
         'no_warnings': True,
         'noprogress': True
@@ -131,26 +130,54 @@ def extract_short_video(url: str) -> str:
         ydl_opts['ffmpeg_location'] = ffmpeg_dir
         logger.info(f"Using FFmpeg from: {ffmpeg_dir}")
 
+    # Build fallback strategies for browser cookies to handle system-specific locks/errors
+    cookie_strategies = []
+    if os.name == 'nt':
+        cookie_strategies = [
+            {'cookiesfrombrowser': 'chrome'},
+            {'cookiesfrombrowser': 'edge'},
+        ]
+    else:
+        cookie_strategies = [
+            {'cookiefile': os.path.join(os.path.dirname(__file__), 'cookies.txt')}
+        ]
+    cookie_strategies.append({})  # No cookies fallback
+
     audio_path = None
+    last_error = None
+    
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            raw_path = ydl.prepare_filename(info)
-            base_path = os.path.splitext(raw_path)[0]
-            
-            # Postprocessor converts file to .m4a or .mp3, so check those extensions
-            if os.path.exists(f"{base_path}.m4a"):
-                audio_path = f"{base_path}.m4a"
-            elif os.path.exists(f"{base_path}.mp3"):
-                audio_path = f"{base_path}.mp3"
-            else:
-                audio_path = raw_path
-            
+        for strategy in cookie_strategies:
+            current_opts = ydl_opts.copy()
+            current_opts.update(strategy)
+            logger.info(f"Attempting download with cookie strategy: {strategy}")
+            try:
+                with yt_dlp.YoutubeDL(current_opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    raw_path = ydl.prepare_filename(info)
+                    base_path = os.path.splitext(raw_path)[0]
+                    
+                    # Check for postprocessed audio formats
+                    if os.path.exists(f"{base_path}.m4a"):
+                        audio_path = f"{base_path}.m4a"
+                    elif os.path.exists(f"{base_path}.mp3"):
+                        audio_path = f"{base_path}.mp3"
+                    else:
+                        audio_path = raw_path
+                    
+                    if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) >= 1024:
+                        logger.info(f"Successfully extracted audio using strategy {strategy}")
+                        break
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Download strategy {strategy} failed: {e}")
+                continue
+
         if not audio_path or not os.path.exists(audio_path):
-            raise FileNotFoundError(f"Audio file was not created: {audio_path}")
+            raise last_error or FileNotFoundError(f"Audio file was not created. Last error: {last_error}")
             
         if os.path.getsize(audio_path) < 1024:
-            raise Exception(f"Extracted audio file is too small or empty (yt-dlp likely failed due to cookies/login). Path: {audio_path}")
+            raise Exception(f"Extracted audio file is too small or empty. Path: {audio_path}")
 
             
         import time
