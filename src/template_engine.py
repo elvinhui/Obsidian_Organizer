@@ -10,7 +10,7 @@ from config import SKILLS_DIR
 logger = logging.getLogger(__name__)
 
 # Setup Jinja2 environment
-TEMPLATE_DIR = os.path.join(os.path.dirname(__name__), "templates")
+TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
 
 def clean_filename(title: str) -> str:
