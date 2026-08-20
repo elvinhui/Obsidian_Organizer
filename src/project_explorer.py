@@ -46,20 +46,31 @@ def generate_project_ideas(resources_text: str) -> str:
     """Sends all resources to Gemini and asks for Python automation project ideas."""
     import time
 
-    prompt = f"""你是一位资深的 Python 自动化架构师和个人效率专家。
+    prompt = f"""你现在是顶尖的 Python 自动化架构师团队。
 
-以下是用户 Obsidian 知识库中的所有现有资源（技能卡片 + 收件箱主题）。
-请基于这些资源，深度分析用户的兴趣领域、知识结构和痛点，然后提出 5-8 个**可用 Python 实现的自动化项目**。
+请阅读我 Obsidian 知识库中现有的全部内容（技能卡片 + 灵感碎片）。
+综合这些信息，挖掘出我潜意识中真正需要的、能极大提升我生产力的自动化需求，并构思出 3-5 个**高度定制化的 Python 自动化项目**。
 
 要求：
-1. 每个项目必须与用户现有的知识/兴趣**高度相关**
-2. 优先推荐能复用现有技术栈的项目（Python + Gemini API + yt-dlp + Obsidian）
-3. 项目从简单到复杂排列
-4. 每个项目包含：项目名称、痛点分析、技术方案、所需库、预计工期、难度星级
-5. 输出格式为 Markdown，使用中文
-6. 在末尾添加一个优先级矩阵表格
+对于每一个构思的项目，你必须运用“规格驱动开发 (SDD)”的方法论，进行极客风格的详尽分析。
+每个项目都必须包含以下结构：
 
-用户现有资源：
+1. 🎯 **项目名称与核心目标**：必须切中我的痛点（如：结合 Python + Gemini API + Obsidian）。
+2. 🔍 **四路调研 (4-Path Research)**：
+   - 数据源：依赖什么输入？API限制如何？
+   - 开源实现：Github是否有现成轮子？
+   - 可行性：最大的技术卡点在哪？
+3. ⚖️ **法庭式对抗选型 (Tech Court)**：
+   - 🔴 **红队挑刺**：指出最容易崩溃、成本最高的技术点。
+   - 🔵 **蓝队辩护**：提出轻量级 MVP 替代方案。
+   - 👨‍⚖️ **法官拍板**：宣判最终必须采用的技术栈。
+4. 🛣️ **SDD 路线图**：列出分阶段任务列表 (Checkbox)，并强制包含自动化测试 (pytest) 环节。
+
+说明：
+- 语言风格极客、犀利、拒绝废话。
+- 采用全 Markdown 格式。每个项目用 `##` 标题隔开。
+
+我的知识库内容如下：
 {resources_text}
 """
 
@@ -68,7 +79,7 @@ def generate_project_ideas(resources_text: str) -> str:
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model='gemini-3.5-flash-lite',
+                model='gemini-3.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.7

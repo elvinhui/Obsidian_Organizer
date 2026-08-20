@@ -216,14 +216,15 @@ def run_pipeline():
     #     logger.debug(traceback.format_exc())
 
     # Phase 13.5: 自动规格代码生成 (Auto SDD CodeGen)
-    try:
-        from sdd_agent import auto_process_pending_specs
-        auto_process_pending_specs()
-    except ImportError:
-        logger.warning("sdd_agent module not found or missing dependencies.")
-    except Exception as e:
-        logger.error(f"Auto SDD CodeGen failed: {e}")
-        logger.debug(traceback.format_exc())
+    # 用户要求：此部分需人工审核后才实行，不要自动运行
+    # try:
+    #     from sdd_agent import auto_process_pending_specs
+    #     auto_process_pending_specs()
+    # except ImportError:
+    #     logger.warning("sdd_agent module not found or missing dependencies.")
+    # except Exception as e:
+    #     logger.error(f"Auto SDD CodeGen failed: {e}")
+    #     logger.debug(traceback.format_exc())
 
     # Phase 14: 资产雷达监控 (Asset Radar)
     try:
