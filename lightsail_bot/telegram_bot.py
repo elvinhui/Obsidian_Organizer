@@ -706,7 +706,7 @@ async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
         # Send to all registered users
         for chat_id in users:
             try:
-                await context.bot.send_message(chat_id=chat_id, text=briefing_text)
+                await context.bot.send_message(chat_id=chat_id, text=briefing_text, parse_mode="HTML")
             except Exception as e:
                 logger.error(f"Failed to send morning brief to {chat_id}: {e}")
                 

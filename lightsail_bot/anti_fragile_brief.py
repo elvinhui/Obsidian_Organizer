@@ -184,29 +184,29 @@ def generate_morning_briefing(client, rss_feeds_dir: str) -> str:
     logger.info(f"Generating cross-comparison for {len(high_quality_entries)} high-signal articles...")
     cross_analysis = generate_cross_comparison(client, high_quality_entries)
     
-    template_str = """🧠 **【每日反脆弱认知晨报】** 🌞
+    template_str = """🧠 <b>【每日反脆弱认知晨报】</b> 🌞
 为您挡住娱乐噪音，只留下能引发深度进化的信号。
 
 {% if cross_analysis %}
-🌍 **天 (宏观趋势 & 周期)**
+🌍 <b>天 (宏观趋势 & 周期)</b>
 {{ cross_analysis.macro_heaven }}
 
-🏢 **地 (行业博弈 & 供应链)**
+🏢 <b>地 (行业博弈 & 供应链)</b>
 {{ cross_analysis.industry_earth }}
 
-🧘 **人 (心智修炼 & 破局)**
+🧘 <b>人 (心智修炼 & 破局)</b>
 {{ cross_analysis.individual_man }}
 
-💡 **今日金句 (Key Takeaway)**
-> {{ cross_analysis.key_takeaway }}
+💡 <b>今日金句 (Key Takeaway)</b>
+<i>{{ cross_analysis.key_takeaway }}</i>
 
----
+—
 {% endif %}
-**🔥 今日高分信源清单：**
+<b>🔥 今日高分信源清单：</b>
 {% for entry in entries %}
-- {{ entry.analysis.chinese_title }} (信噪比: {{ entry.analysis.score }}/10)
-  🔗 {{ entry.link }}
-  *{{ entry.analysis.core_thesis }}*
+• {{ entry.analysis.chinese_title }} (信噪比: {{ entry.analysis.score }}/10)
+  🔗 <a href="{{ entry.link }}">原文链接</a>
+  <i>{{ entry.analysis.core_thesis }}</i>
 {% endfor %}"""
     
     template = Template(template_str)
