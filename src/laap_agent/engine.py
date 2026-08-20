@@ -140,6 +140,10 @@ def run_daily_simulation():
         psi5_state_before=psi5_before,
         simulation_result=sim_result
     )
+    
+    save_memory(entry)
+    save_feedback_card(sim_result)
+    
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"LAAP Simulation completed. Feedback saved to {LAAP_FEEDBACK_DIR}")

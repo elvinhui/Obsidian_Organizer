@@ -103,3 +103,9 @@ YouTube videos with subtitles disabled cause `youtube-transcript-api` to throw `
 1.  **Auto-fallback in `extract_youtube()`**: Wrap the subtitle fetch in try/except; on failure, call `extract_short_video()` to download audio via yt-dlp + Groq Whisper transcription.
 2.  **Keep yt-dlp up to date**: Run `pip install --upgrade yt-dlp` regularly. The jump from `2026.7.4` → `2026.8.19` immediately resolved the YouTube 403.
 3.  **Always use list format**: `{'cookiesfrombrowser': ['chrome']}` not `{'cookiesfrombrowser': 'chrome'}`.
+
+## 5. LAAP Agent Missing Feedback File
+* **🔴 Symptom**: The user noticed that the "分身推演报告" (Avatar Deduction Report) was not updating or missing for the current day.
+* **🔍 Root Cause**: In `src/laap_agent/engine.py`, the `run_daily_simulation()` function successfully calculated the simulation result but forgot to call `save_feedback_card(sim_result)` and `save_memory(entry)` at the end of the pipeline. The generated result was simply discarded instead of being saved to the local database and Obsidian folder.
+* **🟩 Verified Solution**: Added `save_memory(entry)` and `save_feedback_card(sim_result)` calls directly before the logging statements in `run_daily_simulation()`.
+
