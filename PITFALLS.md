@@ -86,3 +86,20 @@ When downloading Douyin (TikTok) videos, the backend extractor crashes with `ERR
         ])
     cookie_strategies.append({})  # No-cookies fallback
     ```
+
+---
+
+## 🎬 4. YouTube "Subtitles Disabled" → 403 Forbidden Audio Download Chain
+
+### 🔴 Symptom
+YouTube videos with subtitles disabled cause `youtube-transcript-api` to throw `Could not retrieve a transcript`. Audio download fallback via `yt-dlp` then fails with `HTTP Error 403: Forbidden`.
+
+### 🔍 Root Cause
+1.  **Subtitles disabled**: The video creator has not enabled captions, so `youtube-transcript-api` has nothing to fetch.
+2.  **yt-dlp version lag**: Older versions of `yt-dlp` (e.g. `2026.7.4`) use stale YouTube player extraction logic. YouTube frequently rotates its anti-bot signatures, causing `403 Forbidden` on audio/video streams.
+3.  **`cookiesfrombrowser` format**: The yt-dlp Python API expects a **list** (e.g. `['chrome']`), not a bare string (`'chrome'`). A bare string gets unpacked character-by-character, causing `_parse_browser_specification() takes from 1 to 4 positional arguments but 6 were given`.
+
+### 🟩 Verified Solution
+1.  **Auto-fallback in `extract_youtube()`**: Wrap the subtitle fetch in try/except; on failure, call `extract_short_video()` to download audio via yt-dlp + Groq Whisper transcription.
+2.  **Keep yt-dlp up to date**: Run `pip install --upgrade yt-dlp` regularly. The jump from `2026.7.4` → `2026.8.19` immediately resolved the YouTube 403.
+3.  **Always use list format**: `{'cookiesfrombrowser': ['chrome']}` not `{'cookiesfrombrowser': 'chrome'}`.
