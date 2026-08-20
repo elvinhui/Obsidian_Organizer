@@ -54,5 +54,35 @@ Avoid routing third-party device telemetry through the Telegram API directly. In
     ```
 2.  Configure MacroDroid to POST telemetry directly to the bot's server IP:
     `http://<LIGHTSAIL_IP>:8080/usagestats`
-3.  Ensure the server port (`8080`) is opened in the cloud provider's firewall (e.g. AWS Lightsail Networking settings).
-4.  The server handler will receive the data, process it (Gemini audit + rclone write), and use the bot token to proactively notify the user.
+3:  Ensure the server port (`8080`) is opened in the cloud provider's firewall (e.g. AWS Lightsail Networking settings).
+4:  The server handler will receive the data, process it (Gemini audit + rclone write), and use the bot token to proactively notify the user.
+
+---
+
+## 🍪 3. Windows Chromium Browser Cookies Lock & Keyring Decryption Failure
+
+### 🔴 Symptom
+When downloading Douyin (TikTok) videos, the backend extractor crashes with `ERROR: unsupported keyring: "firefox"` or `PermissionError: [Errno 13] Permission denied: '.../Cookies'`.
+
+### 🔍 Root Cause
+1.  **Exclusive DB Lock**: Chrome/Edge browser maintains an exclusive OS write lock on the `Cookies` SQLite database while the browser is running.
+2.  **App-Bound Encryption**: Chrome/Edge 127+ utilizes DPAPI process-bound encryption for cookies, meaning keys are locked to the browser application process itself and third-party tools cannot decrypt them directly.
+3.  **Keyring Initialization Loop**: If multiple browsers are configured in a tuple (e.g., `('chrome', 'edge', 'firefox')`), a decryption/access crash in one (e.g., Firefox keyring missing or failing) triggers a fatal exception, preventing the remaining browsers from being tried. If a bare string is passed, it unpacks character-by-character, raising positional argument mismatches.
+
+### 🟩 Verified Solution
+1.  **Prioritize Local cookies.txt**: Set up a local `cookies.txt` file exported via browser extensions. It is not locked by the browser and works instantly on both Windows and Linux.
+2.  **Collection unpack safety & Loop-based fallback**: In python, wrap each strategy in a try-except block and use proper list collections:
+    ```python
+    cookie_strategies = []
+    # Try cookies.txt first
+    local_cookies = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+    if os.path.exists(local_cookies):
+        cookie_strategies.append({'cookiefile': local_cookies})
+    # Fallback to browser extraction on Windows
+    if os.name == 'nt':
+        cookie_strategies.extend([
+            {'cookiesfrombrowser': 'chrome'},
+            {'cookiesfrombrowser': 'edge'}
+        ])
+    cookie_strategies.append({})  # No-cookies fallback
+    ```
