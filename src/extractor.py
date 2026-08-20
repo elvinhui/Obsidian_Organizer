@@ -30,7 +30,7 @@ def extract_webpage(url: str) -> str:
     return response.text
 
 def extract_youtube(url: str) -> str:
-    """Uses youtube-transcript-api to extract subtitles."""
+    """Uses youtube-transcript-api to extract subtitles, with audio transcription fallback."""
     logger.info(f"Extracting YouTube subtitles: {url}")
     
     # Extract video ID
@@ -44,25 +44,34 @@ def extract_youtube(url: str) -> str:
     if not video_id:
         raise ValueError(f"Could not extract YouTube video ID from URL: {url}")
 
-    transcript_list = YouTubeTranscriptApi().list(video_id)
-    
-    # Try fetching Chinese first, then fallback to English
-    transcript = None
+    # Attempt 1: Try fetching subtitles via youtube-transcript-api
     try:
-        transcript = transcript_list.find_transcript(['zh-Hans', 'zh-Hant', 'zh'])
-    except:
-        try:
-            transcript = transcript_list.find_transcript(['en'])
-        except:
-            # Fallback to the first available transcript if neither Chinese nor English is available
-            transcript = list(transcript_list)[0]
-
-    if not transcript:
-        raise ValueError(f"No transcript found for video: {video_id}")
+        transcript_list = YouTubeTranscriptApi().list(video_id)
         
-    transcript_data = transcript.fetch()
-    text = " ".join([t['text'] for t in transcript_data])
-    return text
+        # Try fetching Chinese first, then fallback to English
+        transcript = None
+        try:
+            transcript = transcript_list.find_transcript(['zh-Hans', 'zh-Hant', 'zh'])
+        except:
+            try:
+                transcript = transcript_list.find_transcript(['en'])
+            except:
+                # Fallback to the first available transcript if neither Chinese nor English is available
+                transcript = list(transcript_list)[0]
+
+        if not transcript:
+            raise ValueError(f"No transcript found for video: {video_id}")
+            
+        transcript_data = transcript.fetch()
+        text = " ".join([t['text'] for t in transcript_data])
+        return text
+    except Exception as e:
+        logger.warning(f"YouTube subtitle extraction failed for {video_id}: {e}")
+        logger.info(f"Falling back to audio download + Whisper transcription for YouTube video: {url}")
+        
+        # Attempt 2: Download audio via yt-dlp and transcribe with Whisper (same as short video)
+        canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+        return extract_short_video(canonical_url)
 
 def resolve_douyin_url(url: str) -> str:
     """Resolve Douyin short URLs to their standard web URL to avoid yt-dlp 'iesdouyin' errors."""
@@ -130,16 +139,19 @@ def extract_short_video(url: str) -> str:
         ydl_opts['ffmpeg_location'] = ffmpeg_dir
         logger.info(f"Using FFmpeg from: {ffmpeg_dir}")
 
-    # Build fallback strategies: prioritize local cookies.txt file (stable, works even when browsers are locked)
+    # Build fallback strategies: prioritize local cookies.txt for non-YouTube, browser cookies for YouTube
     cookie_strategies = []
+    is_youtube = 'youtube.com' in url or 'youtu.be' in url
+    
     local_cookies = os.path.join(os.path.dirname(__file__), 'cookies.txt')
-    if os.path.exists(local_cookies):
+    if os.path.exists(local_cookies) and not is_youtube:
+        # cookies.txt contains Douyin cookies, skip for YouTube to avoid 403
         cookie_strategies.append({'cookiefile': local_cookies})
         
     if os.name == 'nt':
         cookie_strategies.extend([
-            {'cookiesfrombrowser': 'chrome'},
-            {'cookiesfrombrowser': 'edge'},
+            {'cookiesfrombrowser': ['chrome']},
+            {'cookiesfrombrowser': ['edge']},
         ])
     cookie_strategies.append({})  # No cookies fallback
 
