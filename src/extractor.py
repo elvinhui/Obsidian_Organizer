@@ -130,17 +130,17 @@ def extract_short_video(url: str) -> str:
         ydl_opts['ffmpeg_location'] = ffmpeg_dir
         logger.info(f"Using FFmpeg from: {ffmpeg_dir}")
 
-    # Build fallback strategies for browser cookies to handle system-specific locks/errors
+    # Build fallback strategies: prioritize local cookies.txt file (stable, works even when browsers are locked)
     cookie_strategies = []
+    local_cookies = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+    if os.path.exists(local_cookies):
+        cookie_strategies.append({'cookiefile': local_cookies})
+        
     if os.name == 'nt':
-        cookie_strategies = [
+        cookie_strategies.extend([
             {'cookiesfrombrowser': 'chrome'},
             {'cookiesfrombrowser': 'edge'},
-        ]
-    else:
-        cookie_strategies = [
-            {'cookiefile': os.path.join(os.path.dirname(__file__), 'cookies.txt')}
-        ]
+        ])
     cookie_strategies.append({})  # No cookies fallback
 
     audio_path = None
