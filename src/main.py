@@ -208,11 +208,12 @@ def run_pipeline():
         logger.debug(traceback.format_exc())
 
     # Phase 13: 每日反脆弱认知简报 (Daily Anti-Fragile RSS Filter)
-    try:
-        process_daily_rss_feeds()
-    except Exception as e:
-        logger.error(f"Daily RSS Anti-Fragility Filter failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Moved to Lightsail Telegram Bot (08:00 AM scheduled push)
+    # try:
+    #     process_daily_rss_feeds()
+    # except Exception as e:
+    #     logger.error(f"Daily RSS Anti-Fragility Filter failed: {e}")
+    #     logger.debug(traceback.format_exc())
 
     # Phase 14: 资产雷达监控 (Asset Radar)
     try:

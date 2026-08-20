@@ -689,6 +689,48 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Running scheduled morning brief job...")
+    users = get_registered_users()
+    if not users:
+        logger.warning("No registered users for morning brief.")
+        return
+        
+    try:
+        from anti_fragile_brief import generate_morning_briefing
+        rss_dir = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "RSS Feed")
+        
+        # Run heavy I/O and LLM logic in a separate thread
+        briefing_text = await asyncio.to_thread(generate_morning_briefing, client, rss_dir)
+        
+        # Send to all registered users
+        for chat_id in users:
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=briefing_text)
+            except Exception as e:
+                logger.error(f"Failed to send morning brief to {chat_id}: {e}")
+                
+        # Also save to Obsidian
+        today_str = datetime.date.today().strftime("%Y-%m-%d")
+        daily_note_dir = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "每日简报")
+        os.makedirs(daily_note_dir, exist_ok=True)
+        daily_note_path = os.path.join(daily_note_dir, f"{today_str}.md")
+        
+        # We use sync file IO here because it's fast enough, but thread is safer
+        def write_note():
+            if not os.path.exists(daily_note_path):
+                with open(daily_note_path, "w", encoding="utf-8") as f:
+                    f.write(f"---\n创建时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n标签: #每日简报\n---\n# {today_str}\n")
+            with open(daily_note_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{briefing_text}\n")
+        
+        await asyncio.to_thread(write_note)
+        logger.info("Morning brief successfully generated and sent.")
+        
+    except ImportError:
+        logger.error("Could not import generate_morning_briefing from anti_fragile_brief")
+    except Exception as e:
+        logger.error(f"Morning brief job failed: {e}")
 
 
 def make_push_job(habit_item):
@@ -749,6 +791,11 @@ def main() -> None:
             t_time = datetime.time(hour=t_hour, minute=t_min, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
             job_func = make_push_job(h)
             application.job_queue.run_daily(job_func, time=t_time, name=f"push_habit_{h['id']}")
+            
+        # Morning Briefing Job (08:00 AM UTC+8)
+        morning_brief_time = datetime.time(hour=8, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+        application.job_queue.run_daily(morning_brief_job, time=morning_brief_time, name="morning_briefing")
+        
     else:
         logger.warning("JobQueue is not initialized! Scheduled pushes will not work. Please install python-telegram-bot[job-queue] on the server.")
 
