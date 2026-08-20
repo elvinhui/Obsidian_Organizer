@@ -163,11 +163,11 @@ def process_ideas_to_projects():
             
             header = f"""---
 创建时间: {now}
-状态: 🏃 执行中
-标签: #项目规划 #AI生成 #{idea['category'].replace(' ', '_')}
-关联灵感: [[{idea['filename'].replace('.md', '')}]]
+状态: 🟢 执行中
+标签: #项目计划 #AI生成 #{idea['category'].replace(' ', '_')} #SDD_Pending
+关联想法: [[{idea['filename'].replace('.md', '')}]]
 ---
-# 🚀 项目规划：{idea['title']}
+# 🚀 项目计划：{idea['title']}
 
 """
             full_content = header + project_plan_content

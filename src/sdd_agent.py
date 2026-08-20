@@ -95,18 +95,10 @@ Output BOTH files again in the exact same format:
     )
     return extract_code_blocks(response.text)
 
-@click.group()
-def cli():
-    """Obsidian SDD Agent: Converts Spec to Code"""
-    pass
-
-@cli.command()
-@click.argument('filepath')
-def run(filepath):
-    """Run SDD Loop on a Markdown Spec file"""
+def run_sdd_on_file(filepath: str) -> bool:
     if not os.path.exists(filepath):
-        click.secho(f"File not found: {filepath}", fg="red")
-        return
+        logger.error(f"File not found: {filepath}")
+        return False
         
     with open(filepath, "r", encoding="utf-8") as f:
         spec_content = f.read()
@@ -116,13 +108,13 @@ def run(filepath):
     
     sandbox_dir = os.path.join(PROJECTS_DIR, "Sandboxes", project_name)
     os.makedirs(sandbox_dir, exist_ok=True)
-    click.secho(f"🚀 Initializing SDD loop in sandbox: {sandbox_dir}", fg="cyan")
+    logger.info(f"🚀 Initializing SDD loop in sandbox: {sandbox_dir}")
     
     # 1. Generate Code
     files = generate_initial_code(spec_content)
     if not files.get('main.py') or not files.get('test_main.py'):
-        click.secho("Failed to parse code from LLM output.", fg="red")
-        return
+        logger.error("Failed to parse code from LLM output.")
+        return False
         
     main_path = os.path.join(sandbox_dir, "main.py")
     test_path = os.path.join(sandbox_dir, "test_main.py")
@@ -137,21 +129,21 @@ def run(filepath):
         with open(test_path, "w", encoding="utf-8") as f:
             f.write(files['test_main.py'])
             
-        click.secho(f"🔄 [Attempt {attempt+1}] Running pytest...", fg="yellow")
+        logger.info(f"🔄 [Attempt {attempt+1}] Running pytest...")
         
         # Run pytest
         result = subprocess.run(["pytest", test_path, "-v"], capture_output=True, text=True, cwd=sandbox_dir)
         
         if result.returncode == 0:
-            click.secho("✅ All tests passed!", fg="green")
+            logger.info("✅ All tests passed!")
             passed = True
             break
         else:
-            click.secho("❌ Tests failed.", fg="red")
+            logger.warning("❌ Tests failed.")
             if attempt < max_retries:
                 files = fix_code(spec_content, files, result.stdout + "\n" + result.stderr)
             else:
-                click.secho("Maximum retries reached. Exiting.", fg="red")
+                logger.error("Maximum retries reached.")
                 print(result.stdout)
                 
     if passed:
@@ -161,9 +153,60 @@ def run(filepath):
             repo.index.add([main_path, test_path])
             commit_msg = f"feat(sdd): auto-generate passing code for {project_name}"
             repo.index.commit(commit_msg)
-            click.secho(f"📦 Successfully committed to git: {commit_msg}", fg="green")
+            logger.info(f"📦 Successfully committed to git: {commit_msg}")
         except Exception as e:
-            click.secho(f"⚠️ Could not commit to git automatically: {e}", fg="yellow")
+            logger.warning(f"⚠️ Could not commit to git automatically: {e}")
+            
+    return passed
+
+def auto_process_pending_specs():
+    """Scans the Projects directory for specs tagged with #SDD_Pending and processes them."""
+    if not os.path.isdir(PROJECTS_DIR):
+        return
+
+    logger.info("🔍 Scanning for #SDD_Pending projects...")
+    for filename in os.listdir(PROJECTS_DIR):
+        if not filename.endswith(".md"):
+            continue
+            
+        filepath = os.path.join(PROJECTS_DIR, filename)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+                
+            if "#SDD_Pending" in content:
+                logger.info(f"⚡ Found pending SDD project: {filename}")
+                success = run_sdd_on_file(filepath)
+                
+                # Update tag
+                if success:
+                    content = content.replace("#SDD_Pending", "#SDD_Completed")
+                else:
+                    content = content.replace("#SDD_Pending", "#SDD_Failed")
+                    
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())
+                    
+        except Exception as e:
+            logger.error(f"Failed to auto-process {filename}: {e}")
+
+@click.group()
+def cli():
+    """Obsidian SDD Agent: Converts Spec to Code"""
+    pass
+
+@cli.command()
+@click.argument('filepath')
+def run(filepath):
+    """Run SDD Loop on a Markdown Spec file"""
+    run_sdd_on_file(filepath)
+    
+@cli.command()
+def auto():
+    """Automatically process all pending SDD specs in the Projects directory"""
+    auto_process_pending_specs()
 
 if __name__ == "__main__":
     cli()
