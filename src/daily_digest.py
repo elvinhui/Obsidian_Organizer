@@ -42,11 +42,30 @@ def get_recent_skill_cards(days: int = 1) -> list[dict]:
     return cards
 
 
+def get_existing_open_questions() -> list[str]:
+    """Reads titles of existing open questions to avoid duplication."""
+    existing = []
+    if not os.path.isdir(OPEN_QUESTIONS_DIR):
+        return existing
+        
+    for filename in os.listdir(OPEN_QUESTIONS_DIR):
+        if filename.endswith(".md"):
+            # Clean up the filename to just get the core topic
+            topic = filename.replace("💭 开放性思考：", "").replace(".md", "").replace("开放问题_", "")
+            existing.append(topic)
+    return existing
+
 def generate_digest(cards: list[dict]) -> str:
     """Sends all recent cards to Gemini for cross-analysis and digest generation."""
     cards_text = "\n\n---\n\n".join(
         [f"### {c['filename']} (修改于 {c['modified']})\n{c['content']}" for c in cards]
     )
+
+    existing_qs = get_existing_open_questions()
+    avoid_str = ""
+    if existing_qs:
+        qs_list = "\n- ".join(existing_qs[:30]) # Pass up to 30 recent topics
+        avoid_str = f"\n\n⚠️ **防重叠警告**：用户已经积累了以下开放性问题（或高度相似的命题），请务必提出**全新视角**的问题，绝对不要与以下内容重叠：\n- {qs_list}"
 
     prompt = f"""你是一位顶级的个人知识管理教练。以下是用户今天新生成/更新的知识技能卡片。
 
@@ -56,7 +75,7 @@ def generate_digest(cards: list[dict]) -> str:
 2. **🔗 跨卡片隐藏关联**：深度分析不同卡片之间的隐藏联系、共同底层逻辑、互补观点或矛盾观点（这是最重要的部分）
 3. **💡 核心洞察提炼**：从所有卡片中提炼出 3-5 个最有价值的核心洞察
 4. **🎯 本周可执行行动**：基于今天学到的知识，给出 3 个具体的、可立即执行的行动项
-5. **🤔 开放性思考**：提出 2-3 个值得进一步探索的问题
+5. **🤔 开放性思考**：提出 2-3 个值得进一步探索的问题（请提出具体的场景化或边界探讨问题）{avoid_str}
 
 输出格式为 Markdown，使用中文，风格要有深度但不冗长。
 
