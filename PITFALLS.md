@@ -127,3 +127,27 @@ YouTube videos with subtitles disabled cause `youtube-transcript-api` to throw `
 * **🔍 Root Cause**: Highly likely that the Linux server`s `OBSIDIAN_BASE_PATH` environment variable (defaulting to `/mnt/gdrive/Obsidian/Knowledge Base`) does not match the actual mount structure of `gdrive:`. For instance, if `gdrive:` points directly to the Vault root, it should be `/mnt/gdrive`. If this is misaligned, all rclone operations in `telegram_bot.py` will fail.
 * **🟩 Verified Solution**: Added deep parent-directory probing to `anti_fragile_brief.py` to map out exactly what `rclone` sees at each level.
 
+
+---
+
+## 🔤 9. Google Drive Folder Name with Invisible Trailing Space
+
+### 🔴 Symptom
+All `rclone lsf` and `rclone cat` operations targeting `gdrive:Obsidian/...` return `directory not found`, despite the folder visibly existing on Google Drive web. The FUSE mount on Linux also fails to see the directory. Morning briefing RSS extraction, daily note sync, and all cloud read/write operations silently fail.
+
+### 🔍 Root Cause
+The Google Drive folder was named `Obsidian ` (with an invisible trailing space) instead of `Obsidian`. This can happen when creating or renaming folders via certain clients, scripts, or the Google Drive API. Since `rclone` performs exact string matching on folder names, `gdrive:Obsidian/...` never matches `gdrive:Obsidian /...`, causing every single path resolution to fail silently.
+
+The trailing space is virtually invisible in both the Google Drive web UI and Windows Explorer, making this an extremely difficult bug to diagnose without explicitly listing directory names via `rclone lsf --dirs-only`.
+
+### 🟩 Verified Solution
+Run the following command on the Linux server (or any machine with rclone configured) to rename the folder:
+```bash
+rclone moveto "gdrive:Obsidian " "gdrive:Obsidian"
+```
+This strips the trailing space and immediately fixes all path resolution across FUSE mounts, rclone CLI operations, and the Telegram bot.
+
+### 🛡️ Prevention
+- Always validate Google Drive folder names with `rclone lsf --dirs-only` after creation.
+- The project rule in `GEMINI.md` already warns: "Never write paths with inner or trailing spaces."
+- Consider adding a startup health check that verifies `OBSIDIAN_BASE_PATH` is reachable via rclone before the bot begins serving.
