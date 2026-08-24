@@ -17,3 +17,6 @@ test*.wav
 *.mp3
 *.m4a
 *.ogg
+
+PITFALLS.md
+GEMINI.md
