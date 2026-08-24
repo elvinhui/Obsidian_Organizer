@@ -76,11 +76,11 @@ def extract_rss_urls_from_dir(directory: str) -> list[str]:
                     debug_info += f"root contents:\n{root_lsf.stdout.strip()[:500]}\n"
                 else:
                     debug_info += f"root err: {root_lsf.stderr.strip()}\n"
-            # Always list the absolute root of gdrive: for diagnosis
-            debug_info += f"\n--- GDrive Root Diagnostic ---\nListing: {RCLONE_REMOTE}\n"
-            gdrive_root = subprocess.run(["rclone", "lsf", RCLONE_REMOTE], capture_output=True, text=True, timeout=15)
+            # Always list the absolute root of gdrive: for diagnosis (dirs only to avoid truncation)
+            debug_info += f"\n--- GDrive Root Diagnostic ---\nListing dirs in: {RCLONE_REMOTE}\n"
+            gdrive_root = subprocess.run(["rclone", "lsf", "--dirs-only", RCLONE_REMOTE], capture_output=True, text=True, timeout=15)
             if gdrive_root.returncode == 0:
-                debug_info += f"gdrive root contents:\n{gdrive_root.stdout.strip()[:800]}\n"
+                debug_info += f"gdrive root dirs:\n{gdrive_root.stdout.strip()[:1500]}\n"
             else:
                 debug_info += f"gdrive root err: {gdrive_root.stderr.strip()}\n"
     except Exception as e:
