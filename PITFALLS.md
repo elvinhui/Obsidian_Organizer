@@ -115,3 +115,9 @@ YouTube videos with subtitles disabled cause `youtube-transcript-api` to throw `
 * **🔍 Root Cause**: (1) The text `#SDD_Pending` was written as an instruction inside the Markdown report, which the scanner naively picked up as a trigger, creating a false positive. (2) The model string `gemini-3.5-pro` is not available in the active Gemini API version, leading to a 404.
 * **🟩 Verified Solution**: Added a filename exclusion for `虚胖笔记扫雷报告` in `sdd_agent.py`s scanner, and downgraded the model string to a known stable `gemini-3.5-flash`.
 
+
+## 7. Rclone CLI Directory Not Found (Sync Delay/Missing Folder)
+* **🔴 Symptom**: Both local FUSE mount and `rclone lsf` fallback throw `directory not found` when looking for the RSS folder.
+* **🔍 Root Cause**: The user created the folder locally via Google Drive Desktop on Windows, but the sync engine paused or failed to upload the `RSS Feed` directory to the Google Drive cloud. Thus, the Linux server (querying the cloud) literally cannot see it.
+* **🟩 Verified Solution**: Advised user to log into Google Drive Web to verify the existence of the folder, and force-sync Google Drive Desktop on their local machine.
+
