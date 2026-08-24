@@ -58,6 +58,24 @@ def extract_rss_urls_from_dir(directory: str) -> list[str]:
                         urls.add(url)
                 else:
                     debug_info += f"cat {filename} failed: {cat_result.stderr.strip()}\n"
+        else:
+            # Diagnostic: List the parent directory
+            parent_dir = remote_dir.rsplit('/', 1)[0]
+            debug_info += f"\n--- Parent Dir Diagnostic ---\nListing parent: {parent_dir}\n"
+            parent_lsf = subprocess.run(["rclone", "lsf", parent_dir], capture_output=True, text=True, timeout=15)
+            debug_info += f"parent lsf code: {parent_lsf.returncode}\n"
+            if parent_lsf.returncode == 0:
+                debug_info += f"parent contents:\n{parent_lsf.stdout.strip()[:500]}\n"
+            else:
+                debug_info += f"parent err: {parent_lsf.stderr.strip()}\n"
+                # Diagnostic: List the root Obsidian directory
+                root_dir = parent_dir.rsplit('/', 2)[0]
+                debug_info += f"\n--- Root Dir Diagnostic ---\nListing root: {root_dir}\n"
+                root_lsf = subprocess.run(["rclone", "lsf", root_dir], capture_output=True, text=True, timeout=15)
+                if root_lsf.returncode == 0:
+                    debug_info += f"root contents:\n{root_lsf.stdout.strip()[:500]}\n"
+                else:
+                    debug_info += f"root err: {root_lsf.stderr.strip()}\n"
     except Exception as e:
         debug_info += f"Fallback Exception: {e}\n"
         
