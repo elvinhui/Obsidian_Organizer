@@ -12,23 +12,47 @@ from jinja2 import Template
 logger = logging.getLogger(__name__)
 
 # Note: this module will be run in the context of telegram_bot.py on the Lightsail server.
+import subprocess
+
 def extract_rss_urls_from_dir(directory: str) -> list[str]:
-    if not os.path.isdir(directory):
-        logger.warning(f"RSS directory {directory} does not exist.")
-        return []
     urls = set()
     url_pattern = re.compile(r'https?://[^\s)\]"\']+')
-    for filename in os.listdir(directory):
-        if filename.endswith(".md"):
-            filepath = os.path.join(directory, filename)
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    found = url_pattern.findall(content)
+    
+    # 1. Try Native OS First
+    if os.path.isdir(directory):
+        for filename in os.listdir(directory):
+            if filename.endswith(".md"):
+                filepath = os.path.join(directory, filename)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        found = url_pattern.findall(content)
+                        for url in found:
+                            urls.add(url)
+                except Exception as e:
+                    logger.error(f"Failed to read RSS source file {filename}: {e}")
+        
+        if urls:
+            return list(urls)
+            
+    # 2. Fallback to rclone (FUSE mount might be inaccessible due to permissions)
+    logger.info("Native OS read failed or returned empty. Attempting rclone fallback...")
+    try:
+        from telegram_bot import mount_path_to_remote
+        remote_dir = mount_path_to_remote(directory)
+        
+        result = subprocess.run(["rclone", "lsf", remote_dir], capture_output=True, text=True, timeout=15)
+        if result.returncode == 0:
+            files = [f.strip() for f in result.stdout.split('\n') if f.strip().endswith('.md')]
+            for filename in files:
+                cat_result = subprocess.run(["rclone", "cat", f"{remote_dir}/{filename}"], capture_output=True, text=True, timeout=15)
+                if cat_result.returncode == 0:
+                    found = url_pattern.findall(cat_result.stdout)
                     for url in found:
                         urls.add(url)
-            except Exception as e:
-                logger.error(f"Failed to read RSS source file {filename}: {e}")
+    except Exception as e:
+        logger.error(f"Rclone fallback failed: {e}")
+        
     return list(urls)
 
 def fetch_recent_entries(urls: list[str], hours_ago: int = 24) -> list[dict]:
@@ -165,17 +189,10 @@ Context:
 
 def generate_morning_briefing(client, rss_feeds_dir: str) -> str:
     logger.info("Starting Anti-Fragile Morning Brief generation...")
-    
-    if not os.path.isdir(rss_feeds_dir):
-        return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：未能找到路径 `{rss_feeds_dir}`。请检查 Lightsail 服务器上的 rclone 挂载是否正常，或是否有 `--allow-other` 权限问题。"
-        
     urls = extract_rss_urls_from_dir(rss_feeds_dir)
+    
     if not urls:
-        try:
-            files = os.listdir(rss_feeds_dir)
-            return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：在目录 `{rss_feeds_dir}` 下找到了文件 `{files}`，但没有提取到任何 `http` 开头的有效链接。"
-        except Exception as e:
-            return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：尝试读取目录 `{rss_feeds_dir}` 失败，报错：`{e}`"
+        return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：在 `{rss_feeds_dir}` 本地 FUSE 挂载和 `rclone` 备用通道均未找到有效的 RSS 链接 (.md文件中的http链接)。"
         
     entries = fetch_recent_entries(urls, hours_ago=24)
     high_quality_entries = []
