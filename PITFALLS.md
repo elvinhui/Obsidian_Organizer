@@ -109,3 +109,9 @@ YouTube videos with subtitles disabled cause `youtube-transcript-api` to throw `
 * **🔍 Root Cause**: In `src/laap_agent/engine.py`, the `run_daily_simulation()` function successfully calculated the simulation result but forgot to call `save_feedback_card(sim_result)` and `save_memory(entry)` at the end of the pipeline. The generated result was simply discarded instead of being saved to the local database and Obsidian folder.
 * **🟩 Verified Solution**: Added `save_memory(entry)` and `save_feedback_card(sim_result)` calls directly before the logging statements in `run_daily_simulation()`.
 
+
+## 6. SDD Agent False Positive and Model 404
+* **🔴 Symptom**: `sdd_agent.py` threw an error trying to process `💣虚胖笔记扫雷报告_20260820.md` and then failed with `404 NOT_FOUND` for model `gemini-3.5-pro`.
+* **🔍 Root Cause**: (1) The text `#SDD_Pending` was written as an instruction inside the Markdown report, which the scanner naively picked up as a trigger, creating a false positive. (2) The model string `gemini-3.5-pro` is not available in the active Gemini API version, leading to a 404.
+* **🟩 Verified Solution**: Added a filename exclusion for `虚胖笔记扫雷报告` in `sdd_agent.py`s scanner, and downgraded the model string to a known stable `gemini-3.5-flash`.
+

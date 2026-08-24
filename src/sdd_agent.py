@@ -53,9 +53,9 @@ import pytest
 from main import *
 [your test_main.py python code here]
 """
-    click.secho("🧠 Requesting initial code generation from Gemini Pro...", fg="cyan")
+    logger.info("🧠 Requesting initial code generation from Gemini...")
     response = client.models.generate_content(
-        model='gemini-3.5-pro',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(temperature=0.2)
     )
@@ -87,9 +87,9 @@ Output BOTH files again in the exact same format:
 ===TEST_MAIN.PY===
 [fixed test_main.py]
 """
-    click.secho("🛠️ Tests failed. Requesting bug fix from Gemini Pro...", fg="magenta")
+    logger.info("🛠️ Tests failed. Requesting bug fix from Gemini...")
     response = client.models.generate_content(
-        model='gemini-3.5-pro',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(temperature=0.2)
     )
@@ -169,11 +169,16 @@ def auto_process_pending_specs():
         if not filename.endswith(".md"):
             continue
             
+        # Ignore reports to prevent false positives
+        if "虚胖笔记扫雷报告" in filename:
+            continue
+            
         filepath = os.path.join(PROJECTS_DIR, filename)
         try:
             with open(filepath, "r", encoding="utf-8") as f:
                 content = f.read()
                 
+            # Safely check if it's in the tags or at least exists
             if "#SDD_Pending" in content:
                 logger.info(f"⚡ Found pending SDD project: {filename}")
                 success = run_sdd_on_file(filepath)
