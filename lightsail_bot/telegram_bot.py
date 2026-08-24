@@ -691,7 +691,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             os.remove(temp_path)
 async def trigger_brief_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manually trigger the morning brief."""
-    if not is_authorized(update):
+    if update.effective_chat.id not in get_registered_users():
         await update.message.reply_text("⛔ 未经授权的用户。")
         return
         
