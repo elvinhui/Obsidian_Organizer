@@ -35,59 +35,25 @@ def extract_rss_urls_from_dir(directory: str) -> list[str]:
         if urls:
             return list(urls)
             
-    # 2. Fallback to rclone (FUSE mount might be inaccessible due to permissions)
+    # 2. Fallback to rclone CLI (bypasses FUSE mount permission issues)
     logger.info("Native OS read failed or returned empty. Attempting rclone fallback...")
-    debug_info = ""
     try:
-        from telegram_bot import mount_path_to_remote, RCLONE_REMOTE
-        debug_info += f"RCLONE_REMOTE is {RCLONE_REMOTE}\n"
+        from telegram_bot import mount_path_to_remote
         remote_dir = mount_path_to_remote(directory)
-        debug_info += f"remote_dir: {remote_dir}\n"
         
         result = subprocess.run(["rclone", "lsf", remote_dir], capture_output=True, text=True, timeout=15)
-        debug_info += f"lsf code: {result.returncode}, err: {result.stderr.strip()}\n"
         if result.returncode == 0:
             files = [f.strip() for f in result.stdout.split('\n') if f.strip().endswith('.md')]
-            debug_info += f"Found .md files: {files}\n"
             for filename in files:
                 cat_result = subprocess.run(["rclone", "cat", f"{remote_dir}/{filename}"], capture_output=True, text=True, timeout=15)
                 if cat_result.returncode == 0:
                     found = url_pattern.findall(cat_result.stdout)
-                    debug_info += f"In {filename} found {len(found)} urls.\n"
                     for url in found:
                         urls.add(url)
-                else:
-                    debug_info += f"cat {filename} failed: {cat_result.stderr.strip()}\n"
         else:
-            # Diagnostic: List the parent directory
-            parent_dir = remote_dir.rsplit('/', 1)[0]
-            debug_info += f"\n--- Parent Dir Diagnostic ---\nListing parent: {parent_dir}\n"
-            parent_lsf = subprocess.run(["rclone", "lsf", parent_dir], capture_output=True, text=True, timeout=15)
-            debug_info += f"parent lsf code: {parent_lsf.returncode}\n"
-            if parent_lsf.returncode == 0:
-                debug_info += f"parent contents:\n{parent_lsf.stdout.strip()[:500]}\n"
-            else:
-                debug_info += f"parent err: {parent_lsf.stderr.strip()}\n"
-                # Diagnostic: List the root Obsidian directory
-                root_dir = parent_dir.rsplit('/', 2)[0]
-                debug_info += f"\n--- Root Dir Diagnostic ---\nListing root: {root_dir}\n"
-                root_lsf = subprocess.run(["rclone", "lsf", root_dir], capture_output=True, text=True, timeout=15)
-                if root_lsf.returncode == 0:
-                    debug_info += f"root contents:\n{root_lsf.stdout.strip()[:500]}\n"
-                else:
-                    debug_info += f"root err: {root_lsf.stderr.strip()}\n"
-            # Always list the absolute root of gdrive: for diagnosis (dirs only to avoid truncation)
-            debug_info += f"\n--- GDrive Root Diagnostic ---\nListing dirs in: {RCLONE_REMOTE}\n"
-            gdrive_root = subprocess.run(["rclone", "lsf", "--dirs-only", RCLONE_REMOTE], capture_output=True, text=True, timeout=15)
-            if gdrive_root.returncode == 0:
-                debug_info += f"gdrive root dirs:\n{gdrive_root.stdout.strip()[:1500]}\n"
-            else:
-                debug_info += f"gdrive root err: {gdrive_root.stderr.strip()}\n"
+            logger.error(f"rclone lsf failed for {remote_dir}: {result.stderr.strip()}")
     except Exception as e:
-        debug_info += f"Fallback Exception: {e}\n"
-        
-    if not urls:
-        return ["__DEBUG__", debug_info]
+        logger.error(f"Rclone fallback failed: {e}")
         
     return list(urls)
 
@@ -227,10 +193,8 @@ def generate_morning_briefing(client, rss_feeds_dir: str) -> str:
     logger.info("Starting Anti-Fragile Morning Brief generation...")
     urls = extract_rss_urls_from_dir(rss_feeds_dir)
     
-    if urls and urls[0] == "__DEBUG__":
-        return f"⚠️ **系统极客诊断信息**\n\n获取 RSS 发生错误，以下是底层 Rclone CLI 的运行日志：\n```text\n{urls[1]}\n```\n请截图此信息。"
-    elif not urls:
-        return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：在 `{rss_feeds_dir}` 本地 FUSE 挂载和 `rclone` 备用通道均未找到有效的 RSS 链接 (.md文件中的http链接)。"
+    if not urls:
+        return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：在 `{rss_feeds_dir}` 本地和 rclone 备用通道均未找到有效的 RSS 链接。"
         
     entries = fetch_recent_entries(urls, hours_ago=24)
     high_quality_entries = []
