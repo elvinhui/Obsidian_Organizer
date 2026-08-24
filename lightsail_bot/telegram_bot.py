@@ -689,6 +689,23 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
+async def trigger_brief_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually trigger the morning brief."""
+    if not is_authorized(update):
+        await update.message.reply_text("⛔ 未经授权的用户。")
+        return
+        
+    await update.message.reply_text("🔄 正在手动生成晨报，请稍候（可能需要 1-2 分钟）...")
+    
+    try:
+        from anti_fragile_brief import generate_morning_briefing
+        rss_dir = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "RSS Feed")
+        briefing_text = await asyncio.to_thread(generate_morning_briefing, client, rss_dir)
+        await update.message.reply_text(briefing_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Failed to generate manual brief: {e}")
+        await update.message.reply_text(f"⚠️ 生成晨报时发生错误：{e}")
+
 async def morning_brief_job(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running scheduled morning brief job...")
     users = get_registered_users()
@@ -775,6 +792,7 @@ def main() -> None:
     # Commands
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("habits", habits_command))
+    application.add_handler(CommandHandler("brief", trigger_brief_command))
 
     # Messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

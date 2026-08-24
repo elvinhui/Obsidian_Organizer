@@ -165,9 +165,17 @@ Context:
 
 def generate_morning_briefing(client, rss_feeds_dir: str) -> str:
     logger.info("Starting Anti-Fragile Morning Brief generation...")
+    
+    if not os.path.isdir(rss_feeds_dir):
+        return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：未能找到路径 `{rss_feeds_dir}`。请检查 Lightsail 服务器上的 rclone 挂载是否正常，或是否有 `--allow-other` 权限问题。"
+        
     urls = extract_rss_urls_from_dir(rss_feeds_dir)
     if not urls:
-        return "⚠️ 未找到任何配置的 RSS 订阅源。"
+        try:
+            files = os.listdir(rss_feeds_dir)
+            return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：在目录 `{rss_feeds_dir}` 下找到了文件 `{files}`，但没有提取到任何 `http` 开头的有效链接。"
+        except Exception as e:
+            return f"⚠️ 未找到任何配置的 RSS 订阅源。\n\n**系统诊断**：尝试读取目录 `{rss_feeds_dir}` 失败，报错：`{e}`"
         
     entries = fetch_recent_entries(urls, hours_ago=24)
     high_quality_entries = []
