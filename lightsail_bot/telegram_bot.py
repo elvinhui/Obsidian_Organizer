@@ -540,6 +540,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await handle_usage_stats(update, context)
         return
         
+    oq_pick = context.user_data.get('answering_oq')
+    if oq_pick:
+        await update.message.reply_text("⏳ 正在将您的回答归档到知识库...")
+        try:
+            from open_questions import save_answer
+            import asyncio
+            success = await asyncio.to_thread(save_answer, oq_pick, text)
+            if success:
+                await update.message.reply_text("✅ 回答已记录，该笔记状态已更新为「已回答」。")
+                context.user_data.pop('answering_oq', None)
+            else:
+                await update.message.reply_text("❌ 保存失败，请查看服务器日志。")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error saving open question answer: {e}")
+            await update.message.reply_text(f"❌ 发生错误：{e}")
+        return
+        
     await update.message.reply_text("⏳ 正在思考如何分类并写入库中...")
     category = await asyncio.to_thread(classify_and_save, text)
     
@@ -773,6 +791,55 @@ def make_push_job(habit_item):
     return push_job
 
 
+
+async def oq_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles clicks on 'Answer Open Question' button."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    if not data.startswith("answer_oq"):
+        return
+        
+    if "oq_latest_pick" not in context.bot_data:
+        await query.message.reply_text("❌ 题目已过期或丢失。")
+        return
+        
+    context.user_data['answering_oq'] = context.bot_data["oq_latest_pick"]
+    await query.message.reply_text("👇 请在下方直接输入您的回答（强制输出，建议不超过3句话）：")
+
+async def open_question_job(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Running scheduled open question job...")
+    users = get_registered_users()
+    if not users:
+        return
+        
+    try:
+        from open_questions import pick_random_unanswered_question
+        import asyncio
+        pick_data = await asyncio.to_thread(pick_random_unanswered_question, OBSIDIAN_BASE_PATH)
+        
+        if not pick_data:
+            for chat_id in users:
+                await context.bot.send_message(chat_id=chat_id, text="🎉 恭喜！所有的开放性思考题目都已回答完毕！积压清零！")
+            return
+            
+        context.bot_data["oq_latest_pick"] = pick_data
+        title = pick_data["filename"].replace(".md", "")
+        prompt = pick_data["prompt"]
+        
+        message_text = f"💡 **【每日开放性思考】**\n\n**{title}**\n\n{prompt}"
+        keyboard = [[InlineKeyboardButton("✍️ 开始回答 (限3句话)", callback_data="answer_oq")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        for chat_id in users:
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=message_text, reply_markup=reply_markup, parse_mode="Markdown")
+            except Exception as e:
+                logger.error(f"Failed to send open question to {chat_id}: {e}")
+    except Exception as e:
+        logger.error(f"Open question job failed: {e}")
+
 def main() -> None:
     """Start the bot."""
     # Start background HTTP server for mobile metrics (StayFree + MacroDroid)
@@ -801,6 +868,7 @@ def main() -> None:
 
     # Callbacks
     application.add_handler(CallbackQueryHandler(habit_callback_handler, pattern="^habit_done:"))
+    application.add_handler(CallbackQueryHandler(oq_callback_handler, pattern="^answer_oq"))
 
     # Scheduled Pushes (UTC+8 / China Time)
     if application.job_queue:
@@ -813,6 +881,9 @@ def main() -> None:
         # Morning Briefing Job (08:00 AM UTC+8)
         morning_brief_time = datetime.time(hour=8, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
         application.job_queue.run_daily(morning_brief_job, time=morning_brief_time, name="morning_briefing")
+        
+        oq_time = datetime.time(hour=21, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+        application.job_queue.run_daily(open_question_job, time=oq_time, name="open_question_push")
         
     else:
         logger.warning("JobQueue is not initialized! Scheduled pushes will not work. Please install python-telegram-bot[job-queue] on the server.")
