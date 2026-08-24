@@ -121,3 +121,9 @@ YouTube videos with subtitles disabled cause `youtube-transcript-api` to throw `
 * **🔍 Root Cause**: The user created the folder locally via Google Drive Desktop on Windows, but the sync engine paused or failed to upload the `RSS Feed` directory to the Google Drive cloud. Thus, the Linux server (querying the cloud) literally cannot see it.
 * **🟩 Verified Solution**: Advised user to log into Google Drive Web to verify the existence of the folder, and force-sync Google Drive Desktop on their local machine.
 
+
+## 8. Bot Rclone Path Misalignment
+* **🔴 Symptom**: `rclone lsf` returns `directory not found` for the RSS folder on the Linux server, even though the folder exists on Google Drive Web.
+* **🔍 Root Cause**: Highly likely that the Linux server`s `OBSIDIAN_BASE_PATH` environment variable (defaulting to `/mnt/gdrive/Obsidian/Knowledge Base`) does not match the actual mount structure of `gdrive:`. For instance, if `gdrive:` points directly to the Vault root, it should be `/mnt/gdrive`. If this is misaligned, all rclone operations in `telegram_bot.py` will fail.
+* **🟩 Verified Solution**: Added deep parent-directory probing to `anti_fragile_brief.py` to map out exactly what `rclone` sees at each level.
+
