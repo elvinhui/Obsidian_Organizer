@@ -563,7 +563,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("⏳ 正在将您的回答归档到知识库...")
         try:
             from open_questions import save_answer
-            import asyncio
             success = await asyncio.to_thread(save_answer, oq_pick, text)
             if success:
                 await update.message.reply_text("✅ 回答已记录，该笔记状态已更新为「已回答」。")
