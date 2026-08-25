@@ -477,6 +477,21 @@ def upload_and_process_with_gemini(file_path: str, prompt: str) -> str:
         client.files.delete(name=gemini_file.name)
 
 
+async def debug_paths(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug command to list exact Google Drive folder names."""
+    try:
+        await update.message.reply_text("正在查询 Google Drive 根目录的文件夹确切名称 (带引号，以检查空格)...")
+        result = subprocess.run(["rclone", "lsf", f"{RCLONE_REMOTE}"], capture_output=True, text=True, timeout=20)
+        lines = result.stdout.split("\n")
+        obsidian_dirs = [f"'{line}'" for line in lines if "bsidian" in line.lower()]
+        
+        if not obsidian_dirs:
+            await update.message.reply_text("未在根目录找到任何包含 Obsidian 的文件夹。")
+        else:
+            await update.message.reply_text(f"找到以下匹配的文件夹:\n" + "\n".join(obsidian_dirs))
+    except Exception as e:
+        await update.message.reply_text(f"查询失败: {e}")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
     chat_id = update.effective_chat.id
@@ -885,6 +900,7 @@ def main() -> None:
 
     # Commands
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("debug_paths", debug_paths))
     application.add_handler(CommandHandler("habits", habits_command))
     application.add_handler(CommandHandler("brief", trigger_brief_command))
 
@@ -921,3 +937,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
