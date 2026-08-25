@@ -354,7 +354,7 @@ def calculate_habit_streak(habit_name: str) -> int:
     return streak
 
 
-def classify_and_save(content: str, update=None):
+def classify_and_save(content: str):
     """Uses Gemini to classify content into an inbox category or Idea, and writes it."""
     prompt = f"""你是一个智能分类助手。请根据用户输入，将其分类，并以 JSON 格式返回。
 
@@ -376,7 +376,6 @@ def classify_and_save(content: str, update=None):
 {content}
 """
     try:
-        # Step 1: Call Gemini
         response = client.models.generate_content(
             model='gemini-1.5-flash',
             contents=prompt,
@@ -386,7 +385,6 @@ def classify_and_save(content: str, update=None):
             )
         )
         
-        # Step 2: Clean and parse JSON
         raw_text = response.text
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
@@ -397,10 +395,9 @@ def classify_and_save(content: str, update=None):
         category = data.get("category", "认知提升.md")
         
         if category == "IDEA" and IDEAS_DIR:
-            # Generate the Markdown file for Idea
             import re
             raw_title = data.get("idea_title", "未命名灵感")
-            title = re.sub(r'[\/:*?"<>|]', '_', raw_title)
+            title = re.sub(r'[\\/:*?"<>|]', '_', raw_title)
             current_time = time.strftime("%Y-%m-%d %H:%M")
             idea_type = data.get("idea_type", "🤔 纯粹的奇思妙想 (生活感悟)")
             idea_feasibility = data.get("idea_feasibility", "⭐⭐ 中等 (需要查资料/花几天时间)")
@@ -408,7 +405,7 @@ def classify_and_save(content: str, update=None):
             idea_why = data.get("idea_why", "")
             idea_next_step = data.get("idea_next_step", "")
             
-            md_content = f"---
+            md_content = f"""---
 创建时间: {current_time}
 灵感分类: {idea_type}
 落地可行性: {idea_feasibility}
@@ -425,8 +422,7 @@ def classify_and_save(content: str, update=None):
 ## 👣 下一步行动 (Next Step)
 > **如果要把这个灵感变成现实，我的第一个微小动作是什么？**
 - [ ] {idea_next_step}
-"
-            
+"""
             filename = f"{title.strip()}.md"
             temp_path = f"/tmp/{uuid4()}_{filename}"
             final_path = os.path.join(IDEAS_DIR, filename)
@@ -436,26 +432,25 @@ def classify_and_save(content: str, update=None):
             rclone_write_new(temp_path, final_path)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+            logger.info(f"Saved idea to: {final_path}")
             return "灵感库_Ideas"
             
         else:
             if category not in ["AI.md", "财商知识.md", "认知提升.md"]:
                 category = "认知提升.md"
                 
+            logger.info(f"Classified as: {category}")
             filepath = os.path.join(INBOX_DIR, category)
-            safe_content = content.replace('
-', ' ')
+            
+            safe_content = content.replace('\n', ' ')
             current_time = time.strftime("%Y-%m-%d %H:%M")
-            task_entry = f"- [ ] #待处理 {current_time} | {safe_content}
-"
+            task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
             
             rclone_append(filepath, task_entry)
             return category
     except Exception as e:
         logger.error(f"Failed to classify and save: {e}")
-        raise e  # Re-raise so the caller can catch it and display it
-
-
+        raise e
 
 def upload_and_process_with_gemini(file_path: str, prompt: str) -> str:
     """Uploads a local file to Gemini and prompts it."""
