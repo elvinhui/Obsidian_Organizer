@@ -354,7 +354,7 @@ def calculate_habit_streak(habit_name: str) -> int:
     return streak
 
 
-def classify_and_save(content: str):
+def classify_and_save(content: str, update=None):
     """Uses Gemini to classify content into an inbox category or Idea, and writes it."""
     prompt = f"""你是一个智能分类助手。请根据用户输入，将其分类，并以 JSON 格式返回。
 
@@ -376,8 +376,9 @@ def classify_and_save(content: str):
 {content}
 """
     try:
+        # Step 1: Call Gemini
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-1.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
@@ -385,14 +386,21 @@ def classify_and_save(content: str):
             )
         )
         
-        data = json.loads(response.text)
+        # Step 2: Clean and parse JSON
+        raw_text = response.text
+        if raw_text.startswith("```json"):
+            raw_text = raw_text[7:]
+        if raw_text.endswith("```"):
+            raw_text = raw_text[:-3]
+            
+        data = json.loads(raw_text.strip())
         category = data.get("category", "认知提升.md")
         
         if category == "IDEA" and IDEAS_DIR:
             # Generate the Markdown file for Idea
             import re
             raw_title = data.get("idea_title", "未命名灵感")
-            title = re.sub(r'[\\/:*?"<>|]', '_', raw_title)
+            title = re.sub(r'[\/:*?"<>|]', '_', raw_title)
             current_time = time.strftime("%Y-%m-%d %H:%M")
             idea_type = data.get("idea_type", "🤔 纯粹的奇思妙想 (生活感悟)")
             idea_feasibility = data.get("idea_feasibility", "⭐⭐ 中等 (需要查资料/花几天时间)")
@@ -400,38 +408,53 @@ def classify_and_save(content: str):
             idea_why = data.get("idea_why", "")
             idea_next_step = data.get("idea_next_step", "")
             
-            md_content = f"---\n创建时间: {current_time}\n灵感分类: {idea_type}\n落地可行性: {idea_feasibility}\n---\n# 💡 {title}\n\n## 💭 这是个什么点子？(The Idea)\n> **一句话简述：** {idea_summary}\n\n## 🔗 为什么觉得它有用？(The Why)\n> **它能解决什么痛点？或者能带来什么好处？**\n- {idea_why}\n\n## 👣 下一步行动 (Next Step)\n> **如果要把这个灵感变成现实，我的第一个微小动作是什么？**\n- [ ] {idea_next_step}\n"
+            md_content = f"---
+创建时间: {current_time}
+灵感分类: {idea_type}
+落地可行性: {idea_feasibility}
+---
+# 💡 {title}
+
+## 💭 这是个什么点子？(The Idea)
+> **一句话简述：** {idea_summary}
+
+## 🔗 为什么觉得它有用？(The Why)
+> **它能解决什么痛点？或者能带来什么好处？**
+- {idea_why}
+
+## 👣 下一步行动 (Next Step)
+> **如果要把这个灵感变成现实，我的第一个微小动作是什么？**
+- [ ] {idea_next_step}
+"
             
             filename = f"{title.strip()}.md"
             temp_path = f"/tmp/{uuid4()}_{filename}"
             final_path = os.path.join(IDEAS_DIR, filename)
             
-            # Write to local /tmp first, then upload via rclone CLI (no FUSE conflicts)
             with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(md_content)
             rclone_write_new(temp_path, final_path)
-            os.remove(temp_path)
-            logger.info(f"Saved idea to: {final_path}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
             return "灵感库_Ideas"
             
         else:
-            # Fallback safeguard
             if category not in ["AI.md", "财商知识.md", "认知提升.md"]:
                 category = "认知提升.md"
                 
-            logger.info(f"Classified as: {category}")
             filepath = os.path.join(INBOX_DIR, category)
-            
-            safe_content = content.replace('\n', ' ')
+            safe_content = content.replace('
+', ' ')
             current_time = time.strftime("%Y-%m-%d %H:%M")
-            task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
+            task_entry = f"- [ ] #待处理 {current_time} | {safe_content}
+"
             
-            # Use rclone CLI to append (read latest → append → upload)
             rclone_append(filepath, task_entry)
             return category
     except Exception as e:
         logger.error(f"Failed to classify and save: {e}")
-        return None
+        raise e  # Re-raise so the caller can catch it and display it
+
 
 
 def upload_and_process_with_gemini(file_path: str, prompt: str) -> str:
