@@ -377,7 +377,7 @@ def classify_and_save(content: str):
 """
     try:
         response = client.models.generate_content(
-            model='gemini-3.5-flash-lite',
+            model='gemini-3.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
@@ -450,7 +450,7 @@ def upload_and_process_with_gemini(file_path: str, prompt: str) -> str:
             
         logger.info("Generating content...")
         response = client.models.generate_content(
-            model='gemini-3.5-flash-lite',
+            model='gemini-3.5-flash',
             contents=[gemini_file, prompt]
         )
         return response.text
@@ -559,12 +559,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
         
     await update.message.reply_text("⏳ 正在思考如何分类并写入库中...")
-    category = await asyncio.to_thread(classify_and_save, text)
-    
-    if category:
-        await update.message.reply_text(f"✅ 已成功分类并记录到 [{category}]")
-    else:
-        await update.message.reply_text("❌ 分类或写入失败，请检查服务器日志。")
+    try:
+        # Wrap the blocking call in a wait_for to prevent infinite hanging
+        category = await asyncio.wait_for(
+            asyncio.to_thread(classify_and_save, text), 
+            timeout=60.0
+        )
+        if category:
+            await update.message.reply_text(f"✅ 已成功分类并记录到 [{category}]")
+        else:
+            await update.message.reply_text("❌ 分类或写入失败，请检查服务器日志。")
+    except asyncio.TimeoutError:
+        logger.error(f"classify_and_save timed out after 60s for text: {text}")
+        await update.message.reply_text("❌ 处理超时（超过60秒），大模型API无响应，请稍后再试。")
+    except Exception as e:
+        logger.error(f"classify_and_save crashed: {e}")
+        await update.message.reply_text(f"❌ 发生致命错误: {e}")
 
 
 async def habits_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
