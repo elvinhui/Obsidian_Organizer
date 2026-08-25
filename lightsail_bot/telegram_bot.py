@@ -280,7 +280,13 @@ def get_daily_note_content(date_str: str) -> tuple[str, bool]:
         for h in HABITS_CONFIG:
             template += f"- [ ] {h['name']}\n"
             
-        template += "\n## ✍️ 日常记录\n\n"
+        template += """
+## ✍️ 日常记录
+- **关于发呆/冥想**：（发呆的2分钟里，我脑子里突然冒出了什么想法？）
+- **关于读书**：（今天读这5分钟书，看到最喜欢的一句话是什么？）
+- **关于不刷手机**：（放下手机的这5分钟，我观察到了什么？）
+
+"""
         return template, False
 
 def write_daily_note(date_str: str, content: str):
