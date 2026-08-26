@@ -19,6 +19,12 @@ import asyncio
 
 # Load environment variables
 load_dotenv()
+
+# Inject rclone root folder ID to completely bypass path resolution bugs
+_obsidian_folder_id = os.getenv("OBSIDIAN_FOLDER_ID", "").strip()
+if _obsidian_folder_id:
+    os.environ["RCLONE_DRIVE_ROOT_FOLDER_ID"] = _obsidian_folder_id
+
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 import json
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -187,6 +193,9 @@ RCLONE_REMOTE = get_rclone_remote()
 def mount_path_to_remote(mount_path):
     """Convert a local mount path to an rclone remote path."""
     rel = os.path.relpath(mount_path, MOUNT_POINT)
+    folder_id = os.getenv("OBSIDIAN_FOLDER_ID", "").strip()
+    if folder_id and (rel.startswith("Obsidian/") or rel.startswith("Obsidian\\")):
+        rel = rel[9:]
     return f"{RCLONE_REMOTE}{rel}"
 
 
