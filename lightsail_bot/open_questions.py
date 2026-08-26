@@ -76,7 +76,7 @@ def save_answer(pick_data: dict, answer: str) -> bool:
         content = content.replace("状态: 持续迭代", "状态: 已回答")
         
         # Ensure target section exists and append
-        target_section = "## 🎯 核心破局点"
+        target_section = "> **一句话回答：**"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         answer_block = f"\n\n**[{timestamp}] 我的3句话破局**\n{answer}\n"
         
