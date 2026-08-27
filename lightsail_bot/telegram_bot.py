@@ -912,6 +912,36 @@ async def screentime_audit_job(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Screentime audit job failed: {e}")
 
+async def trigger_audit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manually trigger the RescueTime screentime audit."""
+    await update.message.reply_text("⏱️ 正在通过 RescueTime API 拉取当前数据，请稍候...")
+    
+    if not RESCUETIME_API_KEY:
+        await update.message.reply_text("⚠️ 无法执行：RESCUETIME_API_KEY 环境变量未设置。")
+        return
+        
+    try:
+        from screentime_auditor import generate_and_save_rescuetime_audit
+        import asyncio
+        
+        report_md = await asyncio.to_thread(
+            generate_and_save_rescuetime_audit, 
+            RESCUETIME_API_KEY, 
+            GEMINI_API_KEY, 
+            OBSIDIAN_BASE_PATH
+        )
+        
+        if report_md:
+            await update.message.reply_text(
+                f"📊 **手动触发：今日注意力审计报告已生成！**\n\n{report_md}",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("⚠️ 审计失败，可能未获取到数据（也许您今天还没用手机，或者 RescueTime 还没同步数据）。")
+    except Exception as e:
+        logger.error(f"Manual audit failed: {e}")
+        await update.message.reply_text(f"⚠️ 生成失败: {e}")
+
 async def open_question_job(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running scheduled open question job...")
     users = get_registered_users()
@@ -965,6 +995,7 @@ def main() -> None:
     application.add_handler(CommandHandler("debug_paths", debug_paths))
     application.add_handler(CommandHandler("habits", habits_command))
     application.add_handler(CommandHandler("brief", trigger_brief_command))
+    application.add_handler(CommandHandler("audit", trigger_audit_command))
 
     # Messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
