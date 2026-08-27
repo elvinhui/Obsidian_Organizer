@@ -30,6 +30,7 @@ import json
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 INBOX_DIR = os.getenv("INBOX_DIR", "").strip()
 IDEAS_DIR = os.getenv("IDEAS_DIR", "").strip()
+RESCUETIME_API_KEY = os.getenv("RESCUETIME_API_KEY", "").strip()
 
 # Setup logging
 logging.basicConfig(
@@ -872,6 +873,45 @@ async def oq_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['answering_oq'] = context.bot_data["oq_latest_pick"]
     await query.message.reply_text("👇 请在下方直接输入您的回答（强制输出，建议不超过3句话）：")
 
+async def screentime_audit_job(context: ContextTypes.DEFAULT_TYPE):
+    logger.info("Running scheduled RescueTime screentime audit job...")
+    users = get_registered_users()
+    if not users:
+        return
+        
+    if not RESCUETIME_API_KEY:
+        logger.warning("RESCUETIME_API_KEY is not set. Cannot run screentime audit.")
+        return
+        
+    try:
+        from screentime_auditor import generate_and_save_rescuetime_audit
+        import asyncio
+        
+        # Notify start
+        for chat_id in users:
+            await context.bot.send_message(chat_id=chat_id, text="⏱️ 正在通过 RescueTime API 拉取今日全量屏幕使用数据，并生成 CBT 注意力审计报告...")
+            
+        report_md = await asyncio.to_thread(
+            generate_and_save_rescuetime_audit, 
+            RESCUETIME_API_KEY, 
+            GEMINI_API_KEY, 
+            OBSIDIAN_BASE_PATH
+        )
+        
+        if report_md:
+            for chat_id in users:
+                await context.bot.send_message(
+                    chat_id=chat_id, 
+                    text=f"📊 **今日注意力审计报告已生成！**\n\n{report_md}",
+                    parse_mode="Markdown"
+                )
+        else:
+            for chat_id in users:
+                await context.bot.send_message(chat_id=chat_id, text="⚠️ 今日 RescueTime 审计失败，可能未获取到数据或 API 密钥错误。")
+                
+    except Exception as e:
+        logger.error(f"Screentime audit job failed: {e}")
+
 async def open_question_job(context: ContextTypes.DEFAULT_TYPE):
     logger.info("Running scheduled open question job...")
     users = get_registered_users()
@@ -949,6 +989,10 @@ def main() -> None:
         
         oq_time = datetime.time(hour=21, minute=0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
         application.job_queue.run_daily(open_question_job, time=oq_time, name="open_question_push")
+        
+        # Screentime Audit Job (23:50 UTC+8)
+        screentime_time = datetime.time(hour=23, minute=50, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+        application.job_queue.run_daily(screentime_audit_job, time=screentime_time, name="screentime_audit_push")
         
     else:
         logger.warning("JobQueue is not initialized! Scheduled pushes will not work. Please install python-telegram-bot[job-queue] on the server.")
