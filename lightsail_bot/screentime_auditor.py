@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import logging
 import datetime
@@ -75,7 +75,7 @@ def generate_and_save_rescuetime_audit(api_key: str, gemini_api_key: str, base_p
         
     logger.info("Successfully fetched RescueTime data, generating audit with Gemini...")
     
-    prompt = f\"\"\"
+    prompt = f"""
     You are an elite productivity and digital minimalism auditor (like Ray Dalio / Cal Newport).
     Analyze the following raw notification containing daily screen time stats for Android.
     
@@ -94,7 +94,7 @@ def generate_and_save_rescuetime_audit(api_key: str, gemini_api_key: str, base_p
     4. Calculate the S/N ratio (Signal to Noise Ratio) = Core Tasks duration / Distraction Noise duration. (If denominator is 0, write 'No Noise').
     5. Write a 2-sentence sharp, constructive CBT audit advice (in Chinese).
     6. Generate a beautiful markdown report (in Chinese).
-    \"\"\"
+    """
     
     try:
         client = genai.Client(api_key=gemini_api_key)
