@@ -2,17 +2,56 @@ import asyncio
 import logging
 import random
 import os
+import json
+import requests
+from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def send_telegram_photo(photo_path, caption=""):
+    try:
+        load_dotenv()
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not token:
+            logger.error("TELEGRAM_BOT_TOKEN not found in .env")
+            return
+            
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        chat_id_file = os.path.join(current_dir, "registered_users.json")
+        if not os.path.exists(chat_id_file):
+            logger.error("registered_users.json not found")
+            return
+            
+        with open(chat_id_file, "r") as f:
+            users = json.load(f)
+            if not users:
+                return
+            chat_id = users[0]
+            
+        url = f"https://api.telegram.org/bot{token}/sendPhoto"
+        with open(photo_path, 'rb') as f:
+            files = {'photo': f}
+            data = {'chat_id': chat_id, 'caption': caption}
+            resp = requests.post(url, files=files, data=data)
+            if resp.status_code == 200:
+                logger.info(f"📤 截图已成功发送至 Telegram!")
+            else:
+                logger.error(f"发送 Telegram 截图失败: {resp.text}")
+    except Exception as e:
+        logger.error(f"发送 Telegram 截图时发生错误: {e}")
 
 async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
     if not os.path.exists(auth_file):
         logger.error(f"❌ 找不到身份凭证文件: {auth_file}")
         return
 
-    from playwright_stealth import Stealth
+    try:
+        from playwright_stealth import Stealth
+    except ImportError:
+        logger.error("缺少 playwright-stealth 模块，请确保在 venv 中安装了该模块。")
+        return
 
     logger.info("🚀 启动算法反向驯化引擎 (Zeno-Flow) ...")
     
@@ -37,14 +76,9 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
             
             try:
                 search_url = f"https://www.douyin.com/search/{keyword}"
-                # 等待网络空闲可能不够，增加 domcontentloaded
                 await page.goto(search_url, wait_until="domcontentloaded")
-                
-                # 给 JS 渲染搜索结果留出更充足的时间
                 await page.wait_for_timeout(4000)
                 
-                # 尝试点击搜索结果中的第一个视频 (使用多种兼容的 CSS 选择器)
-                # 抖音搜索结果经常变动，涵盖 <a> 包含 href="/video/"，或带有 <img> 封面图的容器
                 video_selectors = [
                     'a[href*="/video/"]',
                     'a[href*="/discover/"]',
@@ -71,21 +105,22 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
                     logger.info(f"📺 静默播放中，强制停留 {watch_time/1000} 秒以拉满推荐权重...")
                     await page.wait_for_timeout(watch_time)
                 else:
-                    logger.warning("⚠️ 未找到匹配的视频容器，抖音页面结构可能已更改或出现了滑块。")
-                    # 截图留存以供调试
-                    await page.screenshot(path=f"douyin_error_{keyword}.png")
-                    logger.info(f"📸 现场截图已保存至 douyin_error_{keyword}.png，您可以传回本地查看。")
+                    logger.warning("⚠️ 未找到匹配的视频容器。尝试保存截图并发给主人...")
+                    err_pic = f"douyin_error_{keyword}.png"
+                    await page.screenshot(path=err_pic)
+                    # 发送到 Telegram
+                    send_telegram_photo(err_pic, caption=f"⚠️ 抖音找不到搜索结果或被拦截了\n关键词: {keyword}")
             
             except Exception as e:
                 logger.error(f"❌ 处理关键词 '{keyword}' 时发生错误: {e}")
                 try:
-                    await page.screenshot(path=f"douyin_error_{keyword}.png")
-                    logger.info(f"📸 现场截图已保存至 douyin_error_{keyword}.png")
+                    err_pic = f"douyin_error_{keyword}.png"
+                    await page.screenshot(path=err_pic)
+                    send_telegram_photo(err_pic, caption=f"❌ 抖音脚本运行报错\n关键词: {keyword}\n错误: {e}")
                 except:
                     pass
             
             finally:
-                # 修复: 必须先关闭 page，然后用 asyncio.sleep，而不能用已关闭的 page 去 wait_for_timeout
                 await page.close()
                 cooldown = random.randint(3, 7)
                 await asyncio.sleep(cooldown)
