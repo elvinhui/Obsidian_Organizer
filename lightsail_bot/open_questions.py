@@ -11,42 +11,40 @@ def get_open_questions_dir(base_path: str) -> str:
     """Gets the path to the open questions directory on rclone."""
     return f"{base_path}/03 资产库_Areas/开放性思考"
 
-def pick_random_unanswered_question(base_path: str) -> str:
+def pick_random_unanswered_question(base_path: str) -> dict:
     """
     Picks a random question that is still marked as '状态: 持续迭代'.
-    Returns a tuple (filename, content_preview) or None if all are answered.
+    Returns a dict with filename and content, or None if all are answered.
     """
-    remote_dir = get_open_questions_dir(base_path)
+    import random
+    local_dir = get_open_questions_dir(base_path)
     
     try:
-        from telegram_bot import mount_path_to_remote
-        rclone_remote_dir = mount_path_to_remote(remote_dir)
-        
-        # List all .md files
-        lsf_result = subprocess.run(["rclone", "lsf", rclone_remote_dir], capture_output=True, text=True, timeout=15)
-        if lsf_result.returncode != 0:
-            logger.error(f"Failed to list open questions: {lsf_result.stderr}")
+        if not os.path.exists(local_dir):
+            logger.warning(f"Open questions dir does not exist: {local_dir}")
             return None
             
-        files = [f.strip() for f in lsf_result.stdout.split('\n') if f.strip().endswith('.md')]
+        files = [f for f in os.listdir(local_dir) if f.endswith('.md')]
         unanswered_files = []
         
-        # Read contents to check state
         for filename in files:
-            cat_result = subprocess.run(["rclone", "cat", f"{rclone_remote_dir}/{filename}"], capture_output=True, text=True, timeout=15)
-            if cat_result.returncode == 0:
-                content = cat_result.stdout
+            filepath = os.path.join(local_dir, filename)
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
                 if "状态: 持续迭代" in content:
-                    unanswered_files.append((filename, content))
-                    
+                    unanswered_files.append({"filename": filename, "content": content, "filepath": filepath})
+            except Exception as e:
+                logger.error(f"Failed to read {filepath}: {e}")
+                
         if not unanswered_files:
             return None
             
-        # Pick one randomly
-        picked = random.choice(unanswered_files)
+        pick = random.choice(unanswered_files)
         
         # Extract prompt section from content
-        filename, content = picked
+        import re
+        content = pick["content"]
         prompt_match = re.search(r'## ❓ 命题重述.*?>(.*?)(?:\n##|\Z)', content, re.DOTALL)
         if prompt_match:
             prompt_text = prompt_match.group(1).strip()
@@ -54,10 +52,10 @@ def pick_random_unanswered_question(base_path: str) -> str:
             prompt_text = content[:300] + "..."
             
         return {
-            "filename": filename,
+            "filename": pick["filename"],
             "prompt": prompt_text,
             "full_content": content,
-            "rclone_remote_dir": rclone_remote_dir
+            "filepath": pick["filepath"]
         }
     except Exception as e:
         logger.error(f"Error picking random question: {e}")
@@ -70,7 +68,7 @@ def save_answer(pick_data: dict, answer: str) -> bool:
     try:
         filename = pick_data["filename"]
         content = pick_data["full_content"]
-        rclone_remote_dir = pick_data["rclone_remote_dir"]
+        filepath = pick_data["filepath"]
         
         # Update state
         content = content.replace("状态: 持续迭代", "状态: 已回答")
@@ -85,24 +83,13 @@ def save_answer(pick_data: dict, answer: str) -> bool:
         else:
             content += f"\n\n{target_section}{answer_block}"
             
-        # Write back via rclone
-        from telegram_bot import rclone_write_new
-        filepath = f"{rclone_remote_dir}/{filename}"
-        
-        # Create temp file
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        # Write back via FUSE
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
-            temp_path = f.name
+            f.flush()
+            os.fsync(f.fileno())
             
-        # Copy to remote
-        copy_result = subprocess.run(["rclone", "copyto", temp_path, filepath], capture_output=True, text=True, timeout=15)
-        os.unlink(temp_path)
-        
-        if copy_result.returncode != 0:
-            logger.error(f"Failed to save answer for {filename}: {copy_result.stderr}")
-            return False
-            
+        logger.info(f"Successfully saved answer to {filepath}")
         return True
     except Exception as e:
         logger.error(f"Error saving answer: {e}")

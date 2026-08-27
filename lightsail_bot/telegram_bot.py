@@ -227,15 +227,22 @@ def rclone_append(filepath, content):
 
 
 def rclone_write_new(local_path, dest_path):
-    """Upload a new local file to Google Drive using rclone CLI."""
-    remote = mount_path_to_remote(dest_path)
-    logger.info(f"rclone_write_new to: {remote}")
-    proc = subprocess.run(["rclone", "copyto", local_path, remote], timeout=30)
-    if proc.returncode == 0:
-        logger.info("rclone_write_new succeeded.")
-    else:
-        logger.error(f"rclone_write_new failed: {proc.stderr}")
-    return proc.returncode == 0
+    """Upload a new local file to Google Drive using FUSE mount.
+    We avoid rclone CLI here because its path resolution by name is flaky
+    and causes duplicate directories (e.g. '01 灵感库_Ideas (1)').
+    FUSE handles path resolution much more reliably for new files.
+    """
+    import shutil
+    logger.info(f"Writing new file via FUSE: {dest_path}")
+    try:
+        # Ensure parent directory exists in FUSE
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        shutil.copy2(local_path, dest_path)
+        logger.info("FUSE write succeeded.")
+        return True
+    except Exception as e:
+        logger.error(f"FUSE write failed: {e}")
+        return False
 
 
 # ---------------------------------------------------------------------------
