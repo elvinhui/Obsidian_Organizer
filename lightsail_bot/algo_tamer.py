@@ -14,9 +14,9 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
         return
 
     try:
-        from playwright_stealth import stealth_async
+        from playwright_stealth import Stealth
     except ImportError:
-        logger.error("缺少 playwright-stealth 模块，请运行: pip install playwright-stealth")
+        logger.error("缺少 playwright-stealth 模块，请确保在 venv 中安装了该模块。")
         return
 
     logger.info("🚀 启动算法反向驯化引擎 (Zeno-Flow) ...")
@@ -39,8 +39,9 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
             logger.info(f"\n🎯 [开始驯化] 正在向抖音注入优质关键词: {keyword}")
             page = await context.new_page()
             
-            # 注入隐形斗篷，防止触发抖音的滑块验证码
-            await stealth_async(page)
+            # 注入隐形斗篷 (适配最新 2.0+ 版本的 playwright-stealth)
+            stealth = Stealth()
+            await stealth.apply_stealth_async(page)
             
             try:
                 search_url = f"https://www.douyin.com/search/{keyword}"
@@ -65,7 +66,6 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
                             break
                     
                     # 最重要的一步：强制停留 15-25 秒。
-                    # 推荐算法中“完播率”和“停留时长”的权重最高。
                     watch_time = random.randint(15000, 25000)
                     logger.info(f"📺 静默播放中，强制停留 {watch_time/1000} 秒以拉满推荐权重...")
                     await page.wait_for_timeout(watch_time)
@@ -85,10 +85,7 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
         logger.info("\n🎉 今日算法反向驯化完成！您的推荐流已被清洗。")
 
 if __name__ == "__main__":
-    # 测试用的优质种子词汇
     test_keywords = ["系统思维", "认知觉醒", "纳瓦尔宝典", "控制二分法"]
-    
-    # 获取 auth 文件的绝对路径（假设和脚本在同一个目录）
     current_dir = os.path.dirname(os.path.abspath(__file__))
     auth_file_path = os.path.join(current_dir, "douyin_auth.json")
     
