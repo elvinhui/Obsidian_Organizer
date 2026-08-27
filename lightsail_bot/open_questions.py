@@ -1,6 +1,5 @@
 import os
 import random
-import subprocess
 import logging
 import re
 from datetime import datetime
@@ -8,7 +7,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 def get_open_questions_dir(base_path: str) -> str:
-    """Gets the path to the open questions directory on rclone."""
+    """Gets the path to the open questions directory on FUSE."""
     return f"{base_path}/03 资产库_Areas/开放性思考"
 
 def pick_random_unanswered_question(base_path: str) -> dict:
@@ -16,7 +15,6 @@ def pick_random_unanswered_question(base_path: str) -> dict:
     Picks a random question that is still marked as '状态: 持续迭代'.
     Returns a dict with filename and content, or None if all are answered.
     """
-    import random
     local_dir = get_open_questions_dir(base_path)
     
     try:
@@ -42,8 +40,6 @@ def pick_random_unanswered_question(base_path: str) -> dict:
             
         pick = random.choice(unanswered_files)
         
-        # Extract prompt section from content
-        import re
         content = pick["content"]
         prompt_match = re.search(r'## ❓ 命题重述.*?>(.*?)(?:\n##|\Z)', content, re.DOTALL)
         if prompt_match:
