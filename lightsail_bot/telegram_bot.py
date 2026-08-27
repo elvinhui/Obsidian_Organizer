@@ -996,6 +996,12 @@ def main() -> None:
     application.add_handler(CommandHandler("habits", habits_command))
     application.add_handler(CommandHandler("brief", trigger_brief_command))
     application.add_handler(CommandHandler("audit", trigger_audit_command))
+    
+    async def trigger_oq_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("正在为您抽取今天的开放性思考题...")
+        await open_question_job(context)
+        
+    application.add_handler(CommandHandler("oq", trigger_oq_command))
 
     # Messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
