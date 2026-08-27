@@ -3,6 +3,7 @@ import logging
 import random
 import os
 import json
+import glob
 import requests
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
@@ -15,13 +16,11 @@ def send_telegram_photo(photo_path, caption=""):
         load_dotenv()
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         if not token:
-            logger.error("TELEGRAM_BOT_TOKEN not found in .env")
             return
             
         current_dir = os.path.dirname(os.path.abspath(__file__))
         chat_id_file = os.path.join(current_dir, "registered_users.json")
         if not os.path.exists(chat_id_file):
-            logger.error("registered_users.json not found")
             return
             
         with open(chat_id_file, "r") as f:
@@ -34,15 +33,59 @@ def send_telegram_photo(photo_path, caption=""):
         with open(photo_path, 'rb') as f:
             files = {'photo': f}
             data = {'chat_id': chat_id, 'caption': caption}
-            resp = requests.post(url, files=files, data=data)
-            if resp.status_code == 200:
-                logger.info(f"📤 截图已成功发送至 Telegram!")
-            else:
-                logger.error(f"发送 Telegram 截图失败: {resp.text}")
+            requests.post(url, files=files, data=data)
     except Exception as e:
         logger.error(f"发送 Telegram 截图时发生错误: {e}")
 
-async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
+def get_dynamic_keywords():
+    """从 Obsidian 库中动态提取关键词（笔记标题）"""
+    vault_paths = [
+        r"G:\我的云端硬盘\Obsidian\Knowledge Base",
+        r"/mnt/gdrive/Obsidian/Knowledge Base"
+    ]
+    
+    vault_root = None
+    for p in vault_paths:
+        if os.path.exists(p):
+            vault_root = p
+            break
+            
+    fallback_keywords = ["系统思维", "认知觉醒", "纳瓦尔宝典", "控制二分法"]
+    
+    if not vault_root:
+        logger.info("未找到 Obsidian 库，使用默认关键词。")
+        return fallback_keywords
+        
+    # 优先从 Zeno_Keywords.md 读取 (如果用户手动建了这个文件)
+    manual_file = os.path.join(vault_root, "Zeno_Keywords.md")
+    if os.path.exists(manual_file):
+        with open(manual_file, 'r', encoding='utf-8') as f:
+            lines = [line.strip().replace('- ', '') for line in f if line.strip() and not line.strip().startswith('#')]
+            if lines:
+                logger.info(f"已从 Zeno_Keywords.md 加载自定义关键词列表。")
+                return random.sample(lines, min(4, len(lines)))
+    
+    # 智能模式：从 "01 灵感库_Ideas" 中抽取笔记标题作为高级概念
+    ideas_dir = None
+    for f in os.listdir(vault_root):
+        if "01" in f or "Ideas" in f or "灵感库" in f:
+            ideas_dir = os.path.join(vault_root, f)
+            break
+            
+    if ideas_dir and os.path.isdir(ideas_dir):
+        md_files = glob.glob(os.path.join(ideas_dir, "*.md"))
+        if md_files:
+            titles = [os.path.basename(f).replace('.md', '') for f in md_files]
+            sample_size = min(4, len(titles))
+            chosen = random.sample(titles, sample_size)
+            logger.info(f"🧠 智能提取: 已从您的灵感库抽取今日知识点: {', '.join(chosen)}")
+            return chosen
+            
+    return fallback_keywords
+
+async def tame_algorithm(auth_file="douyin_auth.json"):
+    keywords = get_dynamic_keywords()
+    
     if not os.path.exists(auth_file):
         logger.error(f"❌ 找不到身份凭证文件: {auth_file}")
         return
@@ -79,38 +122,14 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
                 await page.goto(search_url, wait_until="domcontentloaded")
                 await page.wait_for_timeout(4000)
                 
-                video_selectors = [
-                    'a[href*="/video/"]',
-                    'a[href*="/discover/"]',
-                    'li a img',
-                    'div[data-e2e="search-video-card"]'
-                ]
+                logger.info(f"🖱️ 尝试通过绝对坐标点击第一个视频卡片...")
+                await page.mouse.click(300, 450)
+                await page.wait_for_timeout(3000)
                 
-                found = False
-                for selector in video_selectors:
-                    try:
-                        videos = await page.query_selector_all(selector)
-                        for v in videos:
-                            logger.info(f"🖱️ 匹配到视频 ({selector})，模拟点击进入...")
-                            await v.click()
-                            found = True
-                            break
-                        if found:
-                            break
-                    except Exception:
-                        continue
+                watch_time = random.randint(15000, 25000)
+                logger.info(f"📺 静默播放中，强制停留 {watch_time/1000} 秒以拉满推荐权重...")
+                await page.wait_for_timeout(watch_time)
                 
-                if found:
-                    watch_time = random.randint(15000, 25000)
-                    logger.info(f"📺 静默播放中，强制停留 {watch_time/1000} 秒以拉满推荐权重...")
-                    await page.wait_for_timeout(watch_time)
-                else:
-                    logger.warning("⚠️ 未找到匹配的视频容器。尝试保存截图并发给主人...")
-                    err_pic = f"douyin_error_{keyword}.png"
-                    await page.screenshot(path=err_pic)
-                    # 发送到 Telegram
-                    send_telegram_photo(err_pic, caption=f"⚠️ 抖音找不到搜索结果或被拦截了\n关键词: {keyword}")
-            
             except Exception as e:
                 logger.error(f"❌ 处理关键词 '{keyword}' 时发生错误: {e}")
                 try:
@@ -129,7 +148,6 @@ async def tame_algorithm(keywords, auth_file="douyin_auth.json"):
         logger.info("\n🎉 今日算法反向驯化完成！您的推荐流已被清洗。")
 
 if __name__ == "__main__":
-    test_keywords = ["系统思维", "认知觉醒", "纳瓦尔宝典", "控制二分法"]
     current_dir = os.path.dirname(os.path.abspath(__file__))
     auth_file_path = os.path.join(current_dir, "douyin_auth.json")
-    asyncio.run(tame_algorithm(test_keywords, auth_file=auth_file_path))
+    asyncio.run(tame_algorithm(auth_file=auth_file_path))
