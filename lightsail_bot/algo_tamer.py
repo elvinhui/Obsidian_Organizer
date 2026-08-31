@@ -2,13 +2,18 @@ import asyncio
 import logging
 import random
 import os
+import datetime
 import json
 import glob
 import requests
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+current_date = datetime.datetime.now().strftime('%Y-%m-%d')
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f'algo_tamer_{current_date}.log')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler(log_file, encoding='utf-8'), logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
 def send_telegram_photo(photo_path, caption=""):
@@ -36,6 +41,31 @@ def send_telegram_photo(photo_path, caption=""):
             requests.post(url, files=files, data=data)
     except Exception as e:
         logger.error(f"å‘é€ Telegram æˆªå›¾æ—¶å‘ç”Ÿé”™è¯¯: {e}")
+
+
+def send_telegram_message(text):
+    try:
+        load_dotenv()
+        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not token:
+            return
+            
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        chat_id_file = os.path.join(current_dir, "registered_users.json")
+        if not os.path.exists(chat_id_file):
+            return
+            
+        with open(chat_id_file, "r") as f:
+            users = json.load(f)
+            if not users:
+                return
+            chat_id = users[0]
+            
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = {'chat_id': chat_id, 'text': text}
+        requests.post(url, data=data)
+    except Exception as e:
+        logger.error(f"发送 Telegram 消息时发生错误: {e}")
 
 def get_dynamic_keywords():
     """ä»Ž Obsidian åº“ä¸­åŠ¨æ€æå–å…³é”®è¯ï¼ˆç¬”è®°æ ‡é¢˜ï¼‰"""
@@ -83,7 +113,7 @@ def get_dynamic_keywords():
             
     return fallback_keywords
 
-async def tame_algorithm(auth_file="douyin_auth.json"):
+async def tame_algorithm_inner(auth_file="douyin_auth.json"):
     keywords = get_dynamic_keywords()
     
     if not os.path.exists(auth_file):
@@ -110,6 +140,8 @@ async def tame_algorithm(auth_file="douyin_auth.json"):
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
         )
         
+        success_count = 0
+        error_count = 0
         for keyword in keywords:
             logger.info(f"\nðŸŽ¯ [å¼€å§‹é©¯åŒ–] æ­£åœ¨å‘æŠ–éŸ³æ³¨å…¥ä¼˜è´¨å…³é”®è¯: {keyword}")
             page = await context.new_page()
@@ -129,8 +161,9 @@ async def tame_algorithm(auth_file="douyin_auth.json"):
                 watch_time = random.randint(15000, 25000)
                 logger.info(f"ðŸ“º é™é»˜æ’­æ”¾ä¸­ï¼Œå¼ºåˆ¶åœç•™ {watch_time/1000} ç§’ä»¥æ‹‰æ»¡æŽ¨èæƒé‡...")
                 await page.wait_for_timeout(watch_time)
-                
+                success_count += 1
             except Exception as e:
+                error_count += 1
                 logger.error(f"âŒ å¤„ç†å…³é”®è¯ '{keyword}' æ—¶å‘ç”Ÿé”™è¯¯: {e}")
                 try:
                     err_pic = f"douyin_error_{keyword}.png"
@@ -145,9 +178,19 @@ async def tame_algorithm(auth_file="douyin_auth.json"):
                 await asyncio.sleep(cooldown)
 
         await browser.close()
-        logger.info("\nðŸŽ‰ ä»Šæ—¥ç®—æ³•åå‘é©¯åŒ–å®Œæˆï¼æ‚¨çš„æŽ¨èæµå·²è¢«æ¸…æ´—ã€‚")
+        summary = f"✅ 今日算法反向驯化完成！\n关键词数量: {len(keywords)}\n成功: {success_count}\n失败: {error_count}\n您的推荐流已被清洗。"
+        logger.info(summary)
+        send_telegram_message(summary)
 
 if __name__ == "__main__":
     current_dir = os.path.dirname(os.path.abspath(__file__))
     auth_file_path = os.path.join(current_dir, "douyin_auth.json")
+    # The global try-catch is now in tame_algorithm
     asyncio.run(tame_algorithm(auth_file=auth_file_path))
+
+async def tame_algorithm(auth_file="douyin_auth.json"):
+    try:
+        await tame_algorithm_inner(auth_file)
+    except Exception as e:
+        logger.error(f"算法洗白脚本发生严重错误: {e}")
+        send_telegram_message(f"❌ 算法洗白脚本发生严重错误:\n{e}")

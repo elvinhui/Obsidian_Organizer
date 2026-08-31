@@ -132,7 +132,7 @@ def run_sdd_on_file(filepath: str) -> bool:
         logger.info(f"🔄 [Attempt {attempt+1}] Running pytest...")
         
         # Run pytest
-        result = subprocess.run(["pytest", test_path, "-v"], capture_output=True, text=True, cwd=sandbox_dir)
+        result = subprocess.run(["python", "-m", "pytest", test_path, "-v"], capture_output=True, text=True, cwd=sandbox_dir)
         
         if result.returncode == 0:
             logger.info("✅ All tests passed!")
