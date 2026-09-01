@@ -45,27 +45,51 @@ def send_telegram_photo(photo_path, caption=""):
 
 def send_telegram_message(text):
     try:
+        from dotenv import load_dotenv
+        import json
+        import requests
+        
         load_dotenv()
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        # Fallback to lightsail_bot/.env if needed
+        if not os.getenv("TELEGRAM_BOT_TOKEN"):
+            load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+            
+        token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("SOCRATES_BOT_TOKEN")
         if not token:
+            logger.error("No Telegram token found.")
             return
             
         current_dir = os.path.dirname(os.path.abspath(__file__))
         chat_id_file = os.path.join(current_dir, "registered_users.json")
-        if not os.path.exists(chat_id_file):
+        
+        chat_id = None
+        if os.path.exists(chat_id_file):
+            with open(chat_id_file, "r") as f:
+                users = json.load(f)
+                if users:
+                    chat_id = users[0]
+                    
+        if not chat_id:
+            # Try fetching from getUpdates
+            try:
+                resp = requests.get(f"https://api.telegram.org/bot{token}/getUpdates").json()
+                if resp.get("ok") and resp.get("result"):
+                    chat_id = resp["result"][-1]["message"]["chat"]["id"]
+                    with open(chat_id_file, "w") as f:
+                        json.dump([chat_id], f)
+            except Exception as e:
+                logger.error(f"Auto-fetch chat_id failed: {e}")
+                
+        if not chat_id:
+            logger.error("Could not find any registered chat_id to send the message.")
             return
-            
-        with open(chat_id_file, "r") as f:
-            users = json.load(f)
-            if not users:
-                return
-            chat_id = users[0]
             
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         data = {'chat_id': chat_id, 'text': text}
         requests.post(url, data=data)
     except Exception as e:
         logger.error(f"发送 Telegram 消息时发生错误: {e}")
+
 
 def get_dynamic_keywords():
     """ä»Ž Obsidian åº“ä¸­åŠ¨æ€æå–å…³é”®è¯ï¼ˆç¬”è®°æ ‡é¢˜ï¼‰"""
