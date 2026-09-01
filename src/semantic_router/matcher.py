@@ -4,7 +4,7 @@ from google import genai
 import os
 from dotenv import load_dotenv
 
-CACHE_FILE = ".prompt_cache.json"
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".prompt_cache.json")
 
 def get_query_embedding(query, api_key=None):
     if not api_key:

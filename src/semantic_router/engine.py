@@ -4,6 +4,8 @@ from google import genai
 from dotenv import load_dotenv
 
 def render_prompt(filepath, user_input):
+    if not os.path.isabs(filepath):
+        filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", filepath)
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
         

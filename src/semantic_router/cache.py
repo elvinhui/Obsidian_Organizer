@@ -5,7 +5,7 @@ import yaml
 from google import genai
 from dotenv import load_dotenv
 
-CACHE_FILE = ".prompt_cache.json"
+CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".prompt_cache.json")
 
 def get_file_md5(filepath):
     with open(filepath, 'rb') as f:
@@ -26,7 +26,7 @@ def extract_description(filepath):
                 pass
     return ""
 
-def update_cache(prompts_dir="Templates/Prompts", api_key=None):
+def update_cache(prompts_dir=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Templates", "Prompts"), api_key=None):
     if not api_key:
         load_dotenv()
         if not os.getenv("GEMINI_API_KEY"):
