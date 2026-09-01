@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from src.semantic_router.matcher import find_best_prompt
+from src.semantic_router.engine import render_prompt, execute_prompt
 from google import genai
 from google.genai import types
 
@@ -445,6 +449,35 @@ async def handle_court(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         logger.error(f"Court logic failed: {e}")
         await status_msg.edit_text(f"❌ 法庭辩论发生错误: {e}")
+
+
+async def handle_route(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    if text.startswith('/route'):
+        text = text[len('/route'):].strip()
+        
+    if not text:
+        await update.message.reply_text("请提供你想让 Semantic-Router 处理的文本。例如：\n/route 最近股票跌得很惨，我每天晚上都睡不着觉")
+        return
+        
+    await update.message.reply_text("🧠 Semantic-Router 正在思考...")
+    
+    # 1. 查找最佳提示词
+    best_file, score = find_best_prompt(text)
+    
+    if not best_file:
+        await update.message.reply_text("❌ 未找到匹配的提示词模板，请确认缓存是否已更新。")
+        return
+        
+    template_name = os.path.basename(best_file)
+    await update.message.reply_text(f"✅ 匹配到最佳专家: {template_name} (匹配度: {score:.4f})\n⚙️ 正在生成最终洞察...")
+    
+    # 2. 渲染并生成
+    final_prompt = render_prompt(best_file, text)
+    result = execute_prompt(final_prompt)
+    
+    # 3. 发送给用户
+    await update.message.reply_text(result)
 
 def main():
     logger.info("🤖 Starting Cognitive Debugger (Socrates) Telegram Bot...")
