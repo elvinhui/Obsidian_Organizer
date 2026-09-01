@@ -182,15 +182,14 @@ async def tame_algorithm_inner(auth_file="douyin_auth.json"):
         logger.info(summary)
         send_telegram_message(summary)
 
-if __name__ == "__main__":
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    auth_file_path = os.path.join(current_dir, "douyin_auth.json")
-    # The global try-catch is now in tame_algorithm
-    asyncio.run(tame_algorithm(auth_file=auth_file_path))
-
 async def tame_algorithm(auth_file="douyin_auth.json"):
     try:
         await tame_algorithm_inner(auth_file)
     except Exception as e:
         logger.error(f"算法洗白脚本发生严重错误: {e}")
         send_telegram_message(f"❌ 算法洗白脚本发生严重错误:\n{e}")
+
+if __name__ == "__main__":
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    auth_file_path = os.path.join(current_dir, "douyin_auth.json")
+    asyncio.run(tame_algorithm(auth_file=auth_file_path))
