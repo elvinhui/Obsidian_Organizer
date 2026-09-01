@@ -27,6 +27,40 @@ def cosine_similarity(vec_a, vec_b):
         return 0.0
     return dot_product / (norm_a * norm_b)
 
+def llm_fallback_router(query, cache, api_key=None):
+    if not api_key:
+        load_dotenv()
+        if not os.getenv("GEMINI_API_KEY"):
+            load_dotenv("lightsail_bot/.env")
+        api_key = os.getenv("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
+    
+    options = []
+    for filepath, data in cache.items():
+        # use basename for simpler LLM output
+        options.append(f"Filename: {os.path.basename(filepath)}\nDescription: {data.get('description', '')}")
+        
+    prompt = (
+        "You are a semantic router. Select the most appropriate prompt template for the user's text. "
+        "Reply ONLY with the exact Filename. If none fit, reply 'None'.\n\n"
+        "Options:\n" + "\n\n".join(options) + "\n\n"
+        "User text: " + query
+    )
+    
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        answer = response.text.strip()
+        # map back to full path
+        for filepath in cache.keys():
+            if os.path.basename(filepath) == answer:
+                return filepath, 0.9999
+    except Exception as e:
+        print(f"LLM fallback failed: {e}")
+    return None, 0.0
+
 def find_best_prompt(query, api_key=None):
     if not os.path.exists(CACHE_FILE):
         return None, 0.0
@@ -37,21 +71,25 @@ def find_best_prompt(query, api_key=None):
     if not cache:
         return None, 0.0
         
-    query_vec = np.array(get_query_embedding(query, api_key=api_key))
-    
-    best_filepath = None
-    best_score = -1.0
-    
-    for filepath, data in cache.items():
-        if "embedding" not in data:
-            continue
-        doc_vec = np.array(data["embedding"])
-        score = float(cosine_similarity(query_vec, doc_vec))
-        if score > best_score:
-            best_score = score
-            best_filepath = filepath
-            
-    return best_filepath, best_score
+    try:
+        query_vec = np.array(get_query_embedding(query, api_key=api_key))
+        
+        best_filepath = None
+        best_score = -1.0
+        
+        for filepath, data in cache.items():
+            if "embedding" not in data:
+                continue
+            doc_vec = np.array(data["embedding"])
+            score = float(cosine_similarity(query_vec, doc_vec))
+            if score > best_score:
+                best_score = score
+                best_filepath = filepath
+                
+        return best_filepath, best_score
+    except Exception as e:
+        print(f"Embedding failed ({e}), falling back to LLM router...")
+        return llm_fallback_router(query, cache, api_key=api_key)
 
 if __name__ == "__main__":
     import sys
