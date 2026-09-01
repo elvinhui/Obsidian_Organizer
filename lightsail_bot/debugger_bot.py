@@ -497,6 +497,7 @@ def main():
     
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("court", handle_court))
+    application.add_handler(CommandHandler("route", handle_route))
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
