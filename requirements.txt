@@ -9,3 +9,6 @@ yfinance
 pandas
 matplotlib
 python-frontmatter
+
+numpy
+pyyaml
