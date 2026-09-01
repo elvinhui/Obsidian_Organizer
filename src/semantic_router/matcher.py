@@ -49,7 +49,7 @@ def llm_fallback_router(query, cache, api_key=None):
     
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.6-flash",
             contents=prompt
         )
         answer = response.text.strip()
