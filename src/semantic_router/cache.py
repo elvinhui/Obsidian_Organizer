@@ -29,6 +29,8 @@ def extract_description(filepath):
 def update_cache(prompts_dir="Templates/Prompts", api_key=None):
     if not api_key:
         load_dotenv()
+        if not os.getenv("GEMINI_API_KEY"):
+            load_dotenv("lightsail_bot/.env")
         api_key = os.getenv("GEMINI_API_KEY")
         
     client = genai.Client(api_key=api_key)
