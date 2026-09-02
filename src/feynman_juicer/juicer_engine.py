@@ -20,7 +20,7 @@ class JuicerEngine:
             raise ValueError("GEMINI_API_KEY is not set.")
             
         self.client = genai.Client(api_key=api_key)
-        self.model = "gemini-1.5-flash"
+        self.model = "gemini-3.7-flash"
 
     def juice_audio(self, audio_path: str) -> dict:
         """
