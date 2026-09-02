@@ -62,6 +62,52 @@ def process_task(task: dict):
     
     logger.info(f"Processing task from {os.path.basename(file_path)}: {payload}")
     
+    # ------------------ FEYNMAN JUICER INTEGRATION ------------------
+    import re
+    url_match = re.search(r'(https?://[^\s]+)', payload)
+    target = url_match.group(1) if url_match else payload
+    video_domains = ["youtube.com", "youtu.be", "douyin.com", "v.douyin.com", "bilibili.com", "b23.tv"]
+    
+    if any(d in target for d in video_domains):
+        logger.info("🎬 Video detected! Routing to Feynman-Juicer Multi-modal Pipeline...")
+        from feynman_juicer.media_extractor import MediaExtractor
+        from feynman_juicer.juicer_engine import JuicerEngine
+        from config import KNOWLEDGE_BASE_DIR
+        
+        try:
+            extractor = MediaExtractor()
+            engine = JuicerEngine()
+            
+            # 1. Physical Extraction
+            audio_path = extractor.download_audio(target)
+            
+            # 2. Multi-modal Juicing
+            data = engine.juice_audio(audio_path)
+            
+            # 3. Rendering
+            md_content = engine.render_obsidian_card(data, target)
+            safe_title = "".join(c for c in data.get('title', 'Untitled') if c.isalnum() or c in (' ', '-', '_')).strip()
+            
+            out_file = os.path.join(KNOWLEDGE_BASE_DIR, "02 技能库_Skills", f"{safe_title}.md")
+            os.makedirs(os.path.dirname(out_file), exist_ok=True)
+            
+            with open(out_file, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+                
+            logger.info(f"✅ Feynman-Juicer generated: {out_file}")
+            
+            # Cleanup
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+                
+            # 4. Update Original Task State
+            return mark_task_completed(file_path, task['original_line'])
+            
+        except Exception as e:
+            logger.error(f"Feynman Juicer failed for {target}: {e}")
+            return False
+    # ----------------------------------------------------------------
+    
     # 1. Extraction
     try:
         raw_text = process_url_or_path(payload)
