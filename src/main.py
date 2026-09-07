@@ -72,7 +72,7 @@ def process_task(task: dict):
         logger.info("🎬 Video detected! Routing to Feynman-Juicer Multi-modal Pipeline...")
         from feynman_juicer.media_extractor import MediaExtractor
         from feynman_juicer.juicer_engine import JuicerEngine
-        from config import KNOWLEDGE_BASE_DIR
+        from config import SKILLS_DIR
         
         try:
             extractor = MediaExtractor()
@@ -88,7 +88,7 @@ def process_task(task: dict):
             md_content = engine.render_obsidian_card(data, target)
             safe_title = "".join(c for c in data.get('title', 'Untitled') if c.isalnum() or c in (' ', '-', '_')).strip()
             
-            out_file = os.path.join(KNOWLEDGE_BASE_DIR, "02 技能库_Skills", f"{safe_title}.md")
+            out_file = os.path.join(SKILLS_DIR, f"{safe_title}.md")
             os.makedirs(os.path.dirname(out_file), exist_ok=True)
             
             with open(out_file, 'w', encoding='utf-8') as f:
