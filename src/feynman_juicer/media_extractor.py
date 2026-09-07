@@ -27,20 +27,28 @@ class MediaExtractor:
             except Exception as e:
                 logger.warning(f"Failed to resolve short link: {e}")
 
+        # 动态获取 cookies.txt 绝对路径
+        cookies_path = os.path.join(os.path.dirname(__file__), "..", "cookies.txt")
+        if not os.path.exists(cookies_path):
+            cookies_path = os.path.join(os.path.dirname(__file__), "..", "..", "cookies.txt")
+
         ydl_opts = {
-            'format': 'bestaudio/worst',  # 优先拿独立音频，没有就拿最差的视频
+            'format': 'bestaudio/worst',  # 最低的音频质量即可满足转录
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',
                 'preferredquality': '32',
             }],
             'postprocessor_args': [
-                '-ac', '1', # 强制单声道，极致压缩
+                '-ac', '1', # 单声道缩小体积
             ],
             'outtmpl': os.path.join(self.output_dir, '%(extractor)s_%(id)s.%(ext)s'),
             'quiet': False,
             'no_warnings': True,
         }
+        
+        if os.path.exists(cookies_path):
+            ydl_opts['cookiefile'] = cookies_path
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info_dict = ydl.extract_info(url, download=True)
