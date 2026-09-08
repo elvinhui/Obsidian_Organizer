@@ -307,8 +307,8 @@ def main():
     
     # (Telegram bots are now running separately on Lightsail)
     # 4. Start FastAPI Server
-    logger.info("🚀 Starting LAAP Agent FastAPI Server on port 8000...")
-    uvicorn.run(laap_app, host="0.0.0.0", port=8000, log_level="info")
+    logger.info("🚀 Starting LAAP Agent FastAPI Server on port 8888...")
+    uvicorn.run(laap_app, host="0.0.0.0", port=8888, log_level="info")
 
 if __name__ == "__main__":
     main()
