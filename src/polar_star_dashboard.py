@@ -5,6 +5,8 @@ import logging
 import datetime
 import pandas as pd
 import yfinance as yf
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import frontmatter
 from google import genai
@@ -173,16 +175,8 @@ def generate_dashboard():
     logger.info("Generating North Star dashboard chart...")
     fig, ax1 = plt.subplots(figsize=(10, 5))
     
-    # Support Chinese characters in matplotlib (fallback list for safety)
-    for font in ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS', 'DejaVu Sans']:
-        plt.rcParams['font.sans-serif'] = [font]
-        try:
-            # Test plot text to see if it throws error
-            fig.canvas.draw()
-            break
-        except Exception:
-            continue
-            
+    # Support Chinese characters and Emojis in matplotlib (fallback list for safety)
+    plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'Segoe UI Emoji', 'SimHei', 'Arial Unicode MS', 'DejaVu Sans']
     plt.rcParams['axes.unicode_minus'] = False
     
     # Plot Macro Indicators
