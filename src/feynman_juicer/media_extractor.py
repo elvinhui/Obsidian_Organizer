@@ -9,6 +9,9 @@ logger = logging.getLogger(__name__)
 def find_or_generate_cookies() -> Optional[str]:
     """Finds existing cookies.txt or auto-generates it from Playwright douyin_auth.json."""
     for p in [
+        os.path.join(os.path.dirname(__file__), "..", "cookies_safe.txt"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "cookies_safe.txt"),
+        os.path.join(os.getcwd(), "cookies_safe.txt"),
         os.path.join(os.path.dirname(__file__), "..", "cookies.txt"),
         os.path.join(os.path.dirname(__file__), "..", "..", "cookies.txt"),
         os.path.join(os.getcwd(), "cookies.txt")
