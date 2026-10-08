@@ -457,10 +457,11 @@ ERROR: [Douyin] 7686881421591534053: Fresh cookies (not necessarily logged in) a
    - Install `playwright` in the venv (`./venv/bin/pip install playwright`).
    - Install Chromium browser binaries and system OS dependencies (`./venv/bin/playwright install chromium && sudo ./venv/bin/playwright install-deps chromium`).
    - Launch Chromium with `--no-sandbox` and `--disable-dev-shm-usage` for resource-constrained Linux environments.
-5. **Avoid `domcontentloaded` Timeout on Cloud Datacenters**:
-   - Douyin PC SPA loads heavy analytics, trackers, and WebSockets that often delay or block the `DOMContentLoaded` event on overseas cloud IPs (Lightsail), resulting in `Page.goto: Timeout 20000ms exceeded`.
-   - **Solution**: Configure `page.goto(clean_url, wait_until='commit', timeout=30000)` which returns immediately (<0.4s) once the HTTP document commit occurs.
-   - Filter out player test video (`uuu_265.mp4`), poll dynamically for `media-audio` or `video/tos` CDN responses (capturing stream in ~3s), and compress with `ffmpeg` to 32kbps mono AAC (~5MB).
+6. **Cross-Border Redirect Tarpit & Datacenter Captcha Bypass**:
+   - `requests.head(url, allow_redirects=True)` followed every cross-border redirect hop, causing short link resolution to hang for 4.5 minutes.
+     - **Solution**: Use `requests.get(url, allow_redirects=False, timeout=5)` to capture the 302 `Location` header directly in **0.3s**!
+   - Completely anonymous datacenter IPs visiting `douyin.com` trigger picture puzzle captchas, preventing video autoplay.
+     - **Solution**: Auto-detect `lightsail_bot/douyin_auth.json` and pass it via `new_context(storage_state=auth_file)`. Provided `scripts/import_auth.py` to deploy browser tokens safely with one command without terminal clipboard truncation.
 
 ---
 
