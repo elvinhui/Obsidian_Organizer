@@ -458,6 +458,27 @@ ERROR: [Douyin] 7686881421591534053: Fresh cookies (not necessarily logged in) a
    - Install Chromium browser binaries and system OS dependencies (`./venv/bin/playwright install chromium && sudo ./venv/bin/playwright install-deps chromium`).
    - Launch Chromium with `--no-sandbox` and `--disable-dev-shm-usage` for resource-constrained Linux environments.
 
+---
+
+## 💻 24. AWS Web SSH Terminal Emoji Surrogate Encoding Crash on CLI Invocation
+
+### 🔴 Symptom
+When pasting commands containing Emojis or multibyte Unicode characters (such as `print('🎉 成功提取音频:', res)`) directly into the AWS Lightsail web SSH browser terminal, execution crashes with:
+```text
+Unable to decode the command from the command line:
+UnicodeEncodeError: 'utf-8' codec can't encode characters in position 153-158: surrogates not allowed
+```
+
+### 🔍 Root Cause
+1. **Web Terminal Surrogate Pairs**: AWS Lightsail / EC2 web-based terminal emulators split 4-byte UTF-8 characters (like emojis) into high/low surrogate pairs when pasting via the web browser clipboard buffer.
+2. **Python CLI Strict Decoding**: When Python evaluates `-c "..."` arguments passed from bash, the OS `argv` contains raw surrogate bytes (`\ud83c\udf89`), which violates Python's strict UTF-8 codec expectations and raises `UnicodeEncodeError: surrogates not allowed`.
+3. **Clipboard Overwrite / Concatenation**: Web terminal latency often causes user paste operations to concatenate into existing shell prompts (e.g., `~/Obsidianorganiz./venv/...es)"`).
+
+### 🟩 Verified Solution
+1. **Never pass Emojis or multi-byte special characters in `python -c` CLI strings**: Keep all command-line `-c` one-liners strictly pure ASCII.
+2. **Dedicated Test Scripts**: Provide standalone, self-contained test scripts in `scripts/` (e.g. `scripts/test_douyin_download.py`) using pure ASCII logging, allowing users to run `./venv/bin/python scripts/test_douyin_download.py` without terminal escaping or paste corruption.
+
+
 
 
 
