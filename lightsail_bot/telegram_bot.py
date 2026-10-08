@@ -39,8 +39,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Verify environment
-if not all([TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, INBOX_DIR]):
-    logger.error("Missing required environment variables. Check .env file.")
+if not all([TELEGRAM_BOT_TOKEN, GEMINI_API_KEY]):
+    logger.error("Missing required environment variables (TELEGRAM_BOT_TOKEN, GEMINI_API_KEY). Check .env file.")
     exit(1)
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -54,6 +54,19 @@ if raw_base_path.startswith("/") or raw_base_path.startswith("\\"):
     OBSIDIAN_BASE_PATH = "/" + "/".join(path_parts)
 else:
     OBSIDIAN_BASE_PATH = "/".join(path_parts)
+
+if not INBOX_DIR:
+    INBOX_DIR = os.path.join(OBSIDIAN_BASE_PATH, "00 Inbox (收件箱)")
+else:
+    inbox_parts = [p.strip() for p in re.split(r'[/\\]', INBOX_DIR) if p.strip()]
+    INBOX_DIR = ("/" if INBOX_DIR.startswith("/") or INBOX_DIR.startswith("\\") else "") + "/".join(inbox_parts)
+
+if not IDEAS_DIR:
+    IDEAS_DIR = os.path.join(OBSIDIAN_BASE_PATH, "01 灵感库_Ideas")
+else:
+    ideas_parts = [p.strip() for p in re.split(r'[/\\]', IDEAS_DIR) if p.strip()]
+    IDEAS_DIR = ("/" if IDEAS_DIR.startswith("/") or IDEAS_DIR.startswith("\\") else "") + "/".join(ideas_parts)
+
 DAILY_NOTES_DIR = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "日记")
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "registered_users.json")
 
@@ -197,7 +210,11 @@ def mount_path_to_remote(mount_path):
     folder_id = os.getenv("OBSIDIAN_FOLDER_ID", "").strip()
     if folder_id and (rel.startswith("Obsidian/") or rel.startswith("Obsidian\\")):
         rel = rel[9:]
-    return f"{RCLONE_REMOTE}{rel}"
+    rel = rel.replace('\\', '/')
+    remote_prefix = RCLONE_REMOTE if RCLONE_REMOTE else "gdrive:"
+    if not remote_prefix.endswith(":"):
+        remote_prefix += ":"
+    return f"{remote_prefix}{rel}"
 
 
 def rclone_append(filepath, content):
@@ -228,22 +245,44 @@ def rclone_append(filepath, content):
 
 
 def rclone_write_new(local_path, dest_path):
-    """Upload a new local file to Google Drive using FUSE mount.
-    We avoid rclone CLI here because its path resolution by name is flaky
-    and causes duplicate directories (e.g. '01 灵感库_Ideas (1)').
-    FUSE handles path resolution much more reliably for new files.
+    """Upload a new local file to Google Drive using rclone CLI (primary) with FUSE fallback.
+    Uses rclone copyto / rcat directly to Google Drive to ensure cloud sync,
+    and also updates FUSE cache if available.
     """
-    import shutil
-    logger.info(f"Writing new file via FUSE: {dest_path}")
+    success = False
+    remote = mount_path_to_remote(dest_path)
+    logger.info(f"Writing new file via rclone to: {remote}")
+    
+    # 1. Primary: rclone copyto directly to remote Google Drive
     try:
-        # Ensure parent directory exists in FUSE
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        shutil.copy2(local_path, dest_path)
-        logger.info("FUSE write succeeded.")
-        return True
+        proc = subprocess.run(["rclone", "copyto", local_path, remote], capture_output=True, text=True, timeout=30)
+        if proc.returncode == 0:
+            logger.info(f"rclone copyto succeeded: {remote}")
+            success = True
+        else:
+            logger.warning(f"rclone copyto failed (code {proc.returncode}): {proc.stderr.strip()}. Attempting rclone rcat...")
+            with open(local_path, "rb") as f:
+                content_bytes = f.read()
+            proc2 = subprocess.run(["rclone", "rcat", remote], input=content_bytes, capture_output=True, timeout=30)
+            if proc2.returncode == 0:
+                logger.info(f"rclone rcat succeeded: {remote}")
+                success = True
+            else:
+                logger.error(f"rclone rcat failed: {proc2.stderr.strip()}")
     except Exception as e:
-        logger.error(f"FUSE write failed: {e}")
-        return False
+        logger.error(f"rclone CLI upload exception: {e}")
+
+    # 2. Secondary: Update local FUSE mount if present and writable (use copyfile, not copy2, to avoid copystat failure)
+    try:
+        if os.path.exists(MOUNT_POINT):
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            shutil.copyfile(local_path, dest_path)
+            logger.info(f"FUSE local copyfile succeeded: {dest_path}")
+            success = True
+    except Exception as e:
+        logger.debug(f"FUSE copyfile fallback note: {e}")
+
+    return success
 
 
 # ---------------------------------------------------------------------------
@@ -264,13 +303,23 @@ def register_user(chat_id: int):
         logger.error(f"Failed to register user: {e}")
 
 def get_registered_users() -> list[int]:
+    users = []
+    env_chat_id = os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID")
+    if env_chat_id:
+        try:
+            users.append(int(str(env_chat_id).strip()))
+        except ValueError:
+            pass
     try:
         if os.path.exists(CHAT_ID_FILE):
             with open(CHAT_ID_FILE, "r") as f:
-                return json.load(f)
+                file_users = json.load(f)
+                for u in file_users:
+                    if u not in users:
+                        users.append(u)
     except Exception as e:
         logger.error(f"Failed to read registered users: {e}")
-    return []
+    return users
 
 # ---------------------------------------------------------------------------
 # Daily Note & Habit Check-in Logic (Syncs via rclone)
@@ -420,7 +469,8 @@ def classify_and_save(content: str):
         if category == "IDEA" and IDEAS_DIR:
             import re
             raw_title = data.get("idea_title", "未命名灵感")
-            title = re.sub(r'[\\/:*?"<>|]', '_', raw_title)
+            title = re.sub(r'[\\/:*?"<>|]', '_', raw_title).strip()
+            clean_title = re.sub(r'^[💡\s]+', '', title)
             current_time = time.strftime("%Y-%m-%d %H:%M")
             idea_type = data.get("idea_type", "🤔 纯粹的奇思妙想 (生活感悟)")
             idea_feasibility = data.get("idea_feasibility", "⭐⭐ 中等 (需要查资料/花几天时间)")
@@ -433,7 +483,7 @@ def classify_and_save(content: str):
 灵感分类: {idea_type}
 落地可行性: {idea_feasibility}
 ---
-# 💡 {title}
+# 💡 {clean_title}
 
 ## 💭 这是个什么点子？(The Idea)
 > **一句话简述：** {idea_summary}
@@ -446,15 +496,20 @@ def classify_and_save(content: str):
 > **如果要把这个灵感变成现实，我的第一个微小动作是什么？**
 - [ ] {idea_next_step}
 """
-            filename = f"{title.strip()}.md"
-            temp_path = f"/tmp/{uuid4()}_{filename}"
+            filename = f"💡 {clean_title}.md"
+            temp_path = f"/tmp/{uuid4()}_{clean_title}.md"
             final_path = os.path.join(IDEAS_DIR, filename)
             
             with open(temp_path, "w", encoding="utf-8") as f:
                 f.write(md_content)
-            rclone_write_new(temp_path, final_path)
+            write_ok = rclone_write_new(temp_path, final_path)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+                
+            if not write_ok:
+                logger.error(f"Failed to write idea file to: {final_path}")
+                return None
+                
             logger.info(f"Saved idea to: {final_path}")
             return "灵感库_Ideas"
             
@@ -469,7 +524,10 @@ def classify_and_save(content: str):
             current_time = time.strftime("%Y-%m-%d %H:%M")
             task_entry = f"- [ ] #待处理 {current_time} | {safe_content}\n"
             
-            rclone_append(filepath, task_entry)
+            append_ok = rclone_append(filepath, task_entry)
+            if not append_ok:
+                logger.error(f"Failed to append to: {filepath}")
+                return None
             return category
     except Exception as e:
         logger.error(f"Failed to classify and save: {e}")
@@ -589,6 +647,8 @@ async def handle_usage_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles standard text messages or links."""
+    if update.effective_chat:
+        register_user(update.effective_chat.id)
     text = update.message.text
     logger.info(f"Received text: {text}")
     
@@ -708,6 +768,8 @@ async def habit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles voice messages."""
+    if update.effective_chat:
+        register_user(update.effective_chat.id)
     voice = update.message.voice
     file_id = voice.file_id
     
@@ -741,6 +803,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles document uploads (PDF, DOC)."""
+    if update.effective_chat:
+        register_user(update.effective_chat.id)
     document = update.message.document
     file_id = document.file_id
     filename = document.file_name

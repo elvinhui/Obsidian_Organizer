@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import os
+import sys
 import datetime
 import json
 import glob
@@ -9,48 +10,100 @@ import requests
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 current_date = datetime.datetime.now().strftime('%Y-%m-%d')
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, f'algo_tamer_{current_date}.log')
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler(log_file, encoding='utf-8'), logging.StreamHandler()])
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(levelname)s - %(message)s', 
+    handlers=[logging.FileHandler(log_file, encoding='utf-8'), logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
+
+def get_target_chat_id(token=None):
+    """
+    Acquires target chat_id using multiple fallback strategies:
+    1. Environment variable TELEGRAM_CHAT_ID or CHAT_ID
+    2. Local registered_users.json
+    3. Telegram API getUpdates (if available and not drained by active polling)
+    """
+    # 1. Environment variable
+    env_chat_id = os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID")
+    if env_chat_id:
+        try:
+            return int(str(env_chat_id).strip())
+        except ValueError:
+            pass
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    chat_id_file = os.path.join(current_dir, "registered_users.json")
+
+    # 2. Local registered_users.json
+    if os.path.exists(chat_id_file):
+        try:
+            with open(chat_id_file, "r", encoding="utf-8") as f:
+                users = json.load(f)
+                if users and isinstance(users, list) and len(users) > 0:
+                    return users[0]
+        except Exception as e:
+            logger.warning(f"读取 registered_users.json 失败: {e}")
+
+    # 3. getUpdates fallback
+    if token:
+        try:
+            resp = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=10).json()
+            if resp.get("ok") and resp.get("result"):
+                for update in reversed(resp["result"]):
+                    msg = update.get("message") or update.get("callback_query", {}).get("message")
+                    if msg and "chat" in msg:
+                        found_id = msg["chat"]["id"]
+                        try:
+                            with open(chat_id_file, "w", encoding="utf-8") as f:
+                                json.dump([found_id], f)
+                        except Exception:
+                            pass
+                        return found_id
+        except Exception as e:
+            logger.debug(f"通过 getUpdates 获取 chat_id 失败: {e}")
+
+    return None
 
 def send_telegram_photo(photo_path, caption=""):
     try:
         load_dotenv()
-        token = os.getenv("TELEGRAM_BOT_TOKEN")
+        if not os.getenv("TELEGRAM_BOT_TOKEN"):
+            load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+            
+        token = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("SOCRATES_BOT_TOKEN")
         if not token:
+            logger.error("未找到 Telegram Bot Token。")
             return
             
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        chat_id_file = os.path.join(current_dir, "registered_users.json")
-        if not os.path.exists(chat_id_file):
+        chat_id = get_target_chat_id(token)
+        if not chat_id:
+            logger.error("未找到有效的 Telegram chat_id，跳过发送截图。可在 .env 中配置 TELEGRAM_CHAT_ID。")
             return
-            
-        with open(chat_id_file, "r") as f:
-            users = json.load(f)
-            if not users:
-                return
-            chat_id = users[0]
             
         url = f"https://api.telegram.org/bot{token}/sendPhoto"
         with open(photo_path, 'rb') as f:
             files = {'photo': f}
             data = {'chat_id': chat_id, 'caption': caption}
-            requests.post(url, files=files, data=data)
+            requests.post(url, files=files, data=data, timeout=15)
     except Exception as e:
-        logger.error(f"å‘é€ Telegram æˆªå›¾æ—¶å‘ç”Ÿé”™è¯¯: {e}")
+        logger.error(f"发送 Telegram 截图时发生错误: {e}")
 
 
 def send_telegram_message(text):
     try:
-        from dotenv import load_dotenv
-        import json
-        import requests
-        
         load_dotenv()
-        # Fallback to lightsail_bot/.env if needed
         if not os.getenv("TELEGRAM_BOT_TOKEN"):
             load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
             
@@ -59,40 +112,20 @@ def send_telegram_message(text):
             logger.error("No Telegram token found.")
             return
             
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        chat_id_file = os.path.join(current_dir, "registered_users.json")
-        
-        chat_id = None
-        if os.path.exists(chat_id_file):
-            with open(chat_id_file, "r") as f:
-                users = json.load(f)
-                if users:
-                    chat_id = users[0]
-                    
+        chat_id = get_target_chat_id(token)
         if not chat_id:
-            # Try fetching from getUpdates
-            try:
-                resp = requests.get(f"https://api.telegram.org/bot{token}/getUpdates").json()
-                if resp.get("ok") and resp.get("result"):
-                    chat_id = resp["result"][-1]["message"]["chat"]["id"]
-                    with open(chat_id_file, "w") as f:
-                        json.dump([chat_id], f)
-            except Exception as e:
-                logger.error(f"Auto-fetch chat_id failed: {e}")
-                
-        if not chat_id:
-            logger.error("Could not find any registered chat_id to send the message.")
+            logger.error("Could not find any registered chat_id to send the message. (请在 .env 中设置 TELEGRAM_CHAT_ID 或在 Telegram 中向 Bot 发送任意消息)")
             return
             
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         data = {'chat_id': chat_id, 'text': text}
-        requests.post(url, data=data)
+        requests.post(url, data=data, timeout=15)
     except Exception as e:
         logger.error(f"发送 Telegram 消息时发生错误: {e}")
 
 
 def get_dynamic_keywords():
-    """ä»Ž Obsidian åº“ä¸­åŠ¨æ€æå–å…³é”®è¯ï¼ˆç¬”è®°æ ‡é¢˜ï¼‰"""
+    """从 Obsidian 库中动态提取关键词（笔记标题）"""
     vault_paths = [
         r"G:\我的云端硬盘\Obsidian\Knowledge Base",
         r"/mnt/gdrive/Obsidian/Knowledge Base"
@@ -104,19 +137,19 @@ def get_dynamic_keywords():
             vault_root = p
             break
             
-    fallback_keywords = ["ç³»ç»Ÿæ€ç»´", "è®¤çŸ¥è§‰é†’", "çº³ç“¦å°”å®å…¸", "æŽ§åˆ¶äºŒåˆ†æ³•"]
+    fallback_keywords = ["系统思维", "认知觉醒", "纳瓦尔宝典", "控制二分法"]
     
     if not vault_root:
-        logger.info("æœªæ‰¾åˆ° Obsidian åº“ï¼Œä½¿ç”¨é»˜è®¤å…³é”®è¯ã€‚")
+        logger.info("未找到 Obsidian 库，使用默认关键词。")
         return fallback_keywords
         
-    # ä¼˜å…ˆä»Ž Zeno_Keywords.md è¯»å– (å¦‚æžœç”¨æˆ·æ‰‹åŠ¨å»ºäº†è¿™ä¸ªæ–‡ä»¶)
+    # 优先从 Zeno_Keywords.md 读取 (如果用户手动建了这个文件)
     manual_file = os.path.join(vault_root, "Zeno_Keywords.md")
     if os.path.exists(manual_file):
         with open(manual_file, 'r', encoding='utf-8') as f:
             lines = [line.strip().replace('- ', '') for line in f if line.strip() and not line.strip().startswith('#')]
             if lines:
-                logger.info(f"å·²ä»Ž Zeno_Keywords.md åŠ è½½è‡ªå®šä¹‰å…³é”®è¯ åˆ—è¡¨ã€‚")
+                logger.info("已从 Zeno_Keywords.md 加载自定义关键词列表。")
                 return random.sample(lines, min(4, len(lines)))
     
     # 智能模式：从 "05 技能库" 中抽取笔记标题作为高级概念
@@ -141,16 +174,16 @@ async def tame_algorithm_inner(auth_file="douyin_auth.json"):
     keywords = get_dynamic_keywords()
     
     if not os.path.exists(auth_file):
-        logger.error(f"âŒ æ‰¾ä¸åˆ°èº«ä»½å‡­è¯æ–‡ä»¶: {auth_file}")
+        logger.error(f"❌ 找不到身份凭证文件: {auth_file}")
         return
 
     try:
         from playwright_stealth import Stealth
     except ImportError:
-        logger.error("ç¼ºå°‘ playwright-stealth æ¨¡å—ï¼Œè¯·ç¡®ä¿åœ¨ venv ä¸­å®‰è£…äº†è¯¥æ¨¡å—ã€‚")
+        logger.error("缺少 playwright-stealth 模块，请确保在 venv 中安装了该模块。")
         return
 
-    logger.info("ðŸš€ å¯åŠ¨ç®—æ³•åå‘é©¯åŒ–å¼•æ“Ž (Zeno-Flow) ...")
+    logger.info("🚀 启动算法反向驯化引擎 (Zeno-Flow) ...")
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -167,7 +200,7 @@ async def tame_algorithm_inner(auth_file="douyin_auth.json"):
         success_count = 0
         error_count = 0
         for keyword in keywords:
-            logger.info(f"\nðŸŽ¯ [å¼€å§‹é©¯åŒ–] æ­£åœ¨å‘æŠ–éŸ³æ³¨å…¥ä¼˜è´¨å…³é”®è¯: {keyword}")
+            logger.info(f"\n🎯 [开始驯化] 正在向抖音注入优质关键词: {keyword}")
             page = await context.new_page()
             
             stealth = Stealth()
@@ -178,22 +211,22 @@ async def tame_algorithm_inner(auth_file="douyin_auth.json"):
                 await page.goto(search_url, wait_until="domcontentloaded")
                 await page.wait_for_timeout(4000)
                 
-                logger.info(f"ðŸ–±ï¸ å°è¯•é€šè¿‡ç»å¯¹åæ ‡ç‚¹å‡»ç¬¬ä¸€ä¸ªè§†é¢‘å¡ç‰‡...")
+                logger.info("🖱️ 尝试通过绝对坐标点击第一个视频卡片...")
                 await page.mouse.click(300, 450)
                 await page.wait_for_timeout(3000)
                 
                 watch_time = random.randint(15000, 25000)
-                logger.info(f"ðŸ“º é™é»˜æ’­æ”¾ä¸­ï¼Œå¼ºåˆ¶åœç•™ {watch_time/1000} ç§’ä»¥æ‹‰æ»¡æŽ¨èæƒé‡...")
+                logger.info(f"📺 静默播放中，强制停留 {watch_time/1000} 秒以拉满推荐权重...")
                 await page.wait_for_timeout(watch_time)
                 success_count += 1
             except Exception as e:
                 error_count += 1
-                logger.error(f"âŒ å¤„ç†å…³é”®è¯ '{keyword}' æ—¶å‘ç”Ÿé”™è¯¯: {e}")
+                logger.error(f"❌ 处理关键词 '{keyword}' 时发生错误: {e}")
                 try:
                     err_pic = f"douyin_error_{keyword}.png"
                     await page.screenshot(path=err_pic)
-                    send_telegram_photo(err_pic, caption=f"âŒ æŠ–éŸ³è„šæœ¬è¿è¡ŒæŠ¥é”™\nå…³é”®è¯: {keyword}\né”™è¯¯: {e}")
-                except:
+                    send_telegram_photo(err_pic, caption=f"❌ 抖音脚本运行报错\n关键词: {keyword}\n错误: {e}")
+                except Exception:
                     pass
             
             finally:

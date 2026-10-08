@@ -44,9 +44,16 @@ CURRENT_USER=$(whoami)
 BASE_DIR=$(cd "$(dirname "$0")/.." && pwd)
 MOUNT_DIR="/mnt/gdrive/Obsidian/Knowledge Base"
 
-echo "📁 [4/7] 配置文件系统挂载点: $MOUNT_DIR ..."
-sudo mkdir -p "$MOUNT_DIR"
-sudo chown -R "$CURRENT_USER":"$CURRENT_USER" /mnt/gdrive
+echo "📁 [4/7] 检查并配置文件系统挂载点: /mnt/gdrive ..."
+if mountpoint -q /mnt/gdrive 2>/dev/null; then
+    echo "ℹ️ /mnt/gdrive 当前已处于挂载状态，跳过重复创建。"
+else
+    # 尝试清理可能残留的悬挂 FUSE 挂载
+    sudo fusermount -u /mnt/gdrive 2>/dev/null || sudo umount -l /mnt/gdrive 2>/dev/null || true
+    sudo mkdir -p /mnt/gdrive
+    sudo chown -R "$CURRENT_USER":"$CURRENT_USER" /mnt/gdrive
+    sudo chmod 775 /mnt/gdrive
+fi
 
 # 5. 配置 Python 独立虚拟环境与安装依赖
 echo "🐍 [5/7] 配置虚拟环境并安装 Python 依赖..."
@@ -74,6 +81,7 @@ ExecStart=/usr/bin/rclone mount gdrive: /mnt/gdrive \\
     --vfs-cache-max-age 24h \\
     --dir-cache-time 1m \\
     --allow-other \\
+    --allow-non-empty \\
     --umask 002
 Restart=always
 RestartSec=10
