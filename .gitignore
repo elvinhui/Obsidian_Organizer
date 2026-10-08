@@ -5,6 +5,9 @@
 *.mp4
 cookies.txt
 cookies.json
+*cookie*
+*.cookie*
+*auth*.json
 *.db*
 .pytest_cache/
 __pycache__/
