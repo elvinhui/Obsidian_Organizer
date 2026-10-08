@@ -7,6 +7,7 @@ cookies.txt
 cookies.json
 *cookie*
 *.cookie*
+!*.py
 *auth*.json
 *.db*
 .pytest_cache/
