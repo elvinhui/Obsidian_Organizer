@@ -129,6 +129,7 @@ class AuraMemoryDB:
     def upsert_record(self, record: MemoryRecord) -> int:
         """Insert or update a memory record into the ledger and update FTS5."""
         tags_str = " ".join(record.tags)
+        new_fm_json = json.dumps(record.frontmatter, ensure_ascii=False, default=str)
         with self._lock, self.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -141,7 +142,6 @@ class AuraMemoryDB:
                 # Fetch existing row to check if snapshot into memory_history is needed
                 cursor.execute("SELECT * FROM memory_ledger WHERE id = ?", (existing_id,))
                 old_row = cursor.fetchone()
-                new_fm_json = json.dumps(record.frontmatter, ensure_ascii=False, default=str)
                 
                 # If content, frontmatter, or title changed, save prior version to memory_history
                 if old_row and (
@@ -212,19 +212,34 @@ class AuraMemoryDB:
                     (record_id, cjk_tokenize(record.title), cjk_tokenize(record.content_text), cjk_tokenize(tags_str))
                 )
             else:
-                # Insert new record
+                # Insert new record using ON CONFLICT for atomic concurrency safety
                 cursor.execute('''
                     INSERT INTO memory_ledger (
                         file_path, note_id, title, category, frontmatter_json, content_text,
                         real_effect_time, sys_write_time, effective_until, superseded_by,
                         sm2_ease, sm2_interval, sm2_next_review, tags_json, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(file_path) DO UPDATE SET
+                        note_id = excluded.note_id,
+                        title = excluded.title,
+                        category = excluded.category,
+                        frontmatter_json = excluded.frontmatter_json,
+                        content_text = excluded.content_text,
+                        real_effect_time = excluded.real_effect_time,
+                        sys_write_time = excluded.sys_write_time,
+                        effective_until = excluded.effective_until,
+                        superseded_by = excluded.superseded_by,
+                        sm2_ease = excluded.sm2_ease,
+                        sm2_interval = excluded.sm2_interval,
+                        sm2_next_review = excluded.sm2_next_review,
+                        tags_json = excluded.tags_json,
+                        updated_at = excluded.updated_at
                 ''', (
                     record.file_path,
                     record.note_id,
                     record.title,
                     record.category,
-                    json.dumps(record.frontmatter, ensure_ascii=False, default=str),
+                    new_fm_json,
                     record.content_text,
                     record.real_effect_time,
                     record.sys_write_time,
@@ -236,7 +251,10 @@ class AuraMemoryDB:
                     json.dumps(record.tags, ensure_ascii=False, default=str),
                     record.updated_at or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ))
-                record_id = cursor.lastrowid
+                cursor.execute("SELECT id FROM memory_ledger WHERE file_path = ?", (record.file_path,))
+                r = cursor.fetchone()
+                record_id = r['id'] if r else cursor.lastrowid
+                cursor.execute("DELETE FROM memory_fts WHERE rowid = ?", (record_id,))
                 cursor.execute(
                     "INSERT INTO memory_fts(rowid, title, content_text, tags) VALUES (?, ?, ?, ?)",
                     (record_id, cjk_tokenize(record.title), cjk_tokenize(record.content_text), cjk_tokenize(tags_str))

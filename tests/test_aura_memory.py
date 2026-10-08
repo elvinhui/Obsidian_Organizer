@@ -104,6 +104,38 @@ def test_db_upsert_and_fts_query(temp_db):
     assert res_v2.count == 1
     assert "升级版" in res_v2.results[0].snippet
 
+def test_db_upsert_on_conflict_idempotent(temp_db):
+    rec1 = MemoryRecord(
+        note_id="rec-conflict-1",
+        file_path="/mock/vault/skills/纳瓦尔现代智慧.md",
+        title="纳瓦尔智慧v1",
+        category="skills",
+        content_text="初始版本",
+        real_effect_time="2026-10-08",
+        sys_write_time="2026-10-08 10:00:00"
+    )
+    # Upsert once
+    id1 = temp_db.upsert_record(rec1)
+    assert id1 > 0
+
+    # Upsert with same file_path
+    rec2 = MemoryRecord(
+        note_id="rec-conflict-2",
+        file_path="/mock/vault/skills/纳瓦尔现代智慧.md",
+        title="纳瓦尔智慧v2",
+        category="skills",
+        content_text="更新版本：通过自我产品化重塑自由",
+        real_effect_time="2026-10-08",
+        sys_write_time="2026-10-08 10:05:00"
+    )
+    id2 = temp_db.upsert_record(rec2)
+    assert id2 == id1
+
+    # Verify updated content is queryable
+    res = temp_db.query_temporal(QueryRequest(query="自我产品化", as_of="2026-10-09"))
+    assert res.count == 1
+    assert res.results[0].title == "纳瓦尔智慧v2"
+
 def test_db_bi_temporal_filtering(temp_db):
     # Old decision (made 2024-01-01, superseded on 2025-01-01 by new decision)
     old_decision = MemoryRecord(

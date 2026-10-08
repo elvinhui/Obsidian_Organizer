@@ -369,5 +369,66 @@ A user messages Telegram bot with a new idea (e.g. `有想法 要做一个自动
 3. **Defensive Path Normalization**: Add fallback `IDEAS_DIR = os.getenv("IDEAS_DIR", os.path.join(OBSIDIAN_BASE_PATH, "01 灵感库_Ideas"))` and strip inner/trailing spaces from each component.
 4. **Immediate Vault Recovery**: Restored the missing note `💡 自动抢KTM火车票机器人.md` directly to `G:\我的云端硬盘\Obsidian\Knowledge Base\01 灵感库_Ideas\`.
 
+---
+
+## 🪟 21. Windows-Specific Toast Notification Dependencies Breaking Headless Linux Cloud Runs
+
+### 🔴 Symptom
+When deploying the automation pipeline or running `python src/run_daily.py` on Linux (AWS Lightsail / EC2), the process crashes immediately on startup:
+```text
+ModuleNotFoundError: No module named 'windows_toasts'
+```
+Even if `pip install windows_toasts` is attempted, it fails to compile or run on Linux because it depends on the Windows WinRT/Toast COM runtime.
+
+### 🔍 Root Cause
+`src/asset_radar.py` statically imported `from windows_toasts import Toast, WindowsToaster` at top-level. In headless Linux server environments without a graphical session or Windows subsystem, any platform-bound desktop GUI/notification library will either fail to install or crash on import.
+
+### 🟩 Verified Solution
+1. **Remove Windows Desktop Notification Coupling**: Eliminate `windows_toasts` from `src/asset_radar.py`.
+2. **Unified Headless Notification Routing via Telegram**: Replace local desktop toasts with proactive Telegram Bot Markdown alerts (`https://api.telegram.org/bot<TOKEN>/sendMessage`). If Telegram credentials (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) are absent or failing, gracefully log the alert and append findings into the Obsidian asset alert markdown report without throwing fatal import exceptions.
+
+---
+
+## 🗄️ 22. SQLite `memory_ledger` Unique Constraint Violation Under Vault Sync / Concurrency
+
+### 🔴 Symptom
+During daily synchronization or execution of `src/run_daily.py`, the pipeline logs:
+```text
+ERROR - Failed to sync file /mnt/gdrive/Obsidian/Knowledge Base/05 技能库/xxx.md: UNIQUE constraint failed: memory_ledger.file_path
+```
+Subsequent note synchronizations for that batch are skipped or aborted.
+
+### 🔍 Root Cause
+In `src/aura_memory/db.py`, `upsert_record()` checked existing rows via a non-atomic `SELECT id FROM memory_ledger WHERE file_path = ?`. If the row did not exist at the time of check, it executed a bare `INSERT INTO memory_ledger ...`.
+When multiple background threads, scheduled cron jobs, or rapid event-driven file scans process the same note or duplicate symlink path before the first transaction commits, the `SELECT` returns `None` for both workers. The second worker then attempts a raw `INSERT`, which crashes on the database `UNIQUE(file_path)` constraint.
+
+### 🟩 Verified Solution
+1. **Atomic SQLite `ON CONFLICT` Upsert**: Update `upsert_record()` to use native SQLite upsert syntax:
+   ```sql
+   INSERT INTO memory_ledger (
+       file_path, note_id, title, category, frontmatter_json, content_text,
+       real_effect_time, sys_write_time, effective_until, superseded_by,
+       sm2_ease, sm2_interval, sm2_next_review, tags_json, updated_at
+   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT(file_path) DO UPDATE SET
+       note_id = excluded.note_id,
+       title = excluded.title,
+       category = excluded.category,
+       frontmatter_json = excluded.frontmatter_json,
+       content_text = excluded.content_text,
+       real_effect_time = excluded.real_effect_time,
+       sys_write_time = excluded.sys_write_time,
+       effective_until = excluded.effective_until,
+       superseded_by = excluded.superseded_by,
+       sm2_ease = excluded.sm2_ease,
+       sm2_interval = excluded.sm2_interval,
+       sm2_next_review = excluded.sm2_next_review,
+       tags_json = excluded.tags_json,
+       updated_at = excluded.updated_at
+   ```
+2. **FTS Re-indexing Consistency**: After the atomic upsert, query the row's `id` to safely `DELETE FROM memory_fts WHERE rowid = ?` and re-insert the updated full-text tokens into `memory_fts`.
+3. **Idempotent Test Verification**: Added `test_db_upsert_on_conflict_idempotent` in `tests/test_aura_memory.py` to ensure idempotency and prevent regressions.
+
+
 
 
