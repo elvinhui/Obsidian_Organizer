@@ -213,8 +213,8 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                 logger.info("Navigating to page (wait_until='commit')...")
                 # Use wait_until='commit' so we don't block on heavy analytics or slow overseas assets
                 page.goto(clean_url, wait_until='commit', timeout=20000)
-                logger.info("Page committed. Listening for detail API & media streams (up to 45s)...")
-                for i in range(45):
+                logger.info("Page committed. Listening for detail API & media streams (up to 75s)...")
+                for i in range(75):
                     page.wait_for_timeout(1000)
                     if video_urls or audio_urls:
                         logger.info(f"Captured Douyin stream/API on second {i+1}!")
