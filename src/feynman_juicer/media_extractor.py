@@ -136,7 +136,10 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
         logger.info(f"🎭 Launching headless browser for Douyin clean URL: {clean_url}")
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
             context = browser.new_context(
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
                 viewport={'width': 1280, 'height': 800}

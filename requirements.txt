@@ -25,3 +25,4 @@ GitPython
 tenacity
 rich
 click
+playwright
