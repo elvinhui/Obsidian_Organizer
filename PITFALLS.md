@@ -504,6 +504,31 @@ On resource-constrained cloud instances (AWS Lightsail nano 512MB RAM, Singapore
    FFmpeg uses HTTP byte range requests to stream and transcode *only* the audio track packets directly from the CDN at 17x real-time speed (taking ~2 seconds and consuming only ~5MB instead of 755MB).
 3. **Graceful Fallback**: If FFmpeg streaming encounters any network anomaly, the extractor falls back to chunked file download.
 
+---
+
+## 🛑 26. Cloud VPS (512MB RAM) CPU Credit Exhaustion & Kernel D-State Freeze from Unbounded Browser Memory
+
+### 🔴 Symptom
+On low-tier cloud instances (AWS Lightsail nano 512MB RAM), launching headless Chromium inside the main application daemon causes port 22 SSH to time out, the instance stops responding to ping and TCP handshakes, and `reboot-instance` hangs because the Linux kernel enters an unrecoverable swap-thrashing D-state.
+
+### 🔍 Root Cause
+1. **Unconstrained V8 Heap**: By default, Chromium's V8 JavaScript engine can allocate up to 1.4GB of heap memory. On heavy single-page apps like Douyin, V8 rapidly balloons, causing intense swap thrashing on a 512MB RAM machine.
+2. **Multiple Renderer Subprocesses**: Chromium spawns separate renderer processes for subframes and background service workers, multiplying memory consumption across multiple processes.
+3. **AWS CPU Burst Credit Depletion**: Swap thrashing maxes out the CPU, quickly draining the nano instance's burst credit balance and throttling CPU to a 5% baseline, causing the kernel network stack and SSH daemon to become completely unresponsive.
+
+### 🟩 Verified Solution
+1. **Strict Chromium Memory & Process Constraints**: In `src/feynman_juicer/media_extractor.py`, pass strict resource-limiting flags to Chromium:
+   - `--renderer-process-limit=1`: Limits Chromium to at most 1 renderer process.
+   - `--js-flags=--max-old-space-size=96`: Strictly caps the V8 JavaScript engine heap to 96MB instead of 1.4GB.
+   - `--disable-breakpad`, `--disable-background-networking`, `--disable-component-update`, `--disable-features=Translate,OptimizationHints,MediaRouter`: Eliminates background maintenance threads and network probes.
+2. **Hard Recovery via AWS CLI**: If a nano instance freezes in D-state, soft ACPI reboots will hang. Execute a hard stop followed by start:
+   ```bash
+   aws lightsail stop-instance --instance-name "Ubuntu-1"
+   # Wait for state: stopped
+   aws lightsail start-instance --instance-name "Ubuntu-1"
+   ```
+
+
 
 
 

@@ -153,10 +153,17 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                     '--disable-software-rasterizer',
                     '--mute-audio',
                     '--no-first-run',
-                    '--no-default-browser-check'
+                    '--no-default-browser-check',
+                    '--renderer-process-limit=1',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-breakpad',
+                    '--disable-component-update',
+                    '--disable-features=Translate,OptimizationHints,MediaRouter',
+                    '--js-flags=--max-old-space-size=96'
                 ]
             )
-            logger.info("Chromium engine started. Setting up browser context...")
+            logger.info("Chromium engine started (low-RAM mode). Setting up browser context...")
 
             # Check if douyin_auth.json exists for authenticated bypass
             auth_file = None
