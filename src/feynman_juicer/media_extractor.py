@@ -101,6 +101,90 @@ def find_or_generate_cookies() -> Optional[str]:
 
     return None
 
+def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
+    """
+    Extracts Douyin audio directly via Playwright headless Chromium network interception.
+    Runs headless browser, bypasses ArgusSecurityPlugin natively, and captures direct CDN audio stream.
+    Zero cookies required, zero login credentials needed, 100% safe.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        import requests
+        import re
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        # 1. Resolve short link
+        video_id = None
+        if "v.douyin.com" in url:
+            try:
+                resp = requests.head(url, allow_redirects=True, timeout=10)
+                url = resp.url
+                logger.info(f"Resolved Douyin short link to: {url}")
+            except Exception as e:
+                logger.warning(f"Failed to resolve short link: {e}")
+
+        match = re.search(r'video/(\d+)', url)
+        if match:
+            video_id = match.group(1)
+            clean_url = f"https://www.douyin.com/video/{video_id}"
+        else:
+            video_id = "douyin_audio"
+            clean_url = url
+
+        audio_urls = []
+        logger.info(f"🎭 Launching headless browser for Douyin clean URL: {clean_url}")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                viewport={'width': 1280, 'height': 800}
+            )
+            page = context.new_page()
+
+            def on_res(r):
+                ct = r.headers.get('content-type', '')
+                if 'media-audio' in r.url or (('audio' in ct or 'video' in ct) and 'tos-cn' in r.url):
+                    audio_urls.append(r.url)
+
+            page.on('response', on_res)
+            try:
+                page.goto(clean_url, wait_until='domcontentloaded', timeout=20000)
+                page.wait_for_timeout(4000)
+            except Exception as e:
+                logger.warning(f"Playwright navigation warning: {e}")
+            finally:
+                browser.close()
+
+        if not audio_urls:
+            logger.warning(f"No audio streams intercepted by Playwright for {clean_url}")
+            return None
+
+        target_stream_url = audio_urls[0]
+        out_file = os.path.join(output_dir, f"douyin_{video_id}.m4a")
+
+        logger.info(f"📥 Downloading intercepted Douyin stream ({len(audio_urls)} streams found)...")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'Referer': 'https://www.douyin.com/'
+        }
+
+        with requests.get(target_stream_url, headers=headers, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            with open(out_file, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=16384):
+                    f.write(chunk)
+
+        if os.path.exists(out_file) and os.path.getsize(out_file) > 1000:
+            logger.info(f"✅ Successfully downloaded Douyin audio ({os.path.getsize(out_file)} bytes) to {out_file}")
+            return out_file
+
+    except Exception as e:
+        logger.warning(f"Playwright direct audio extraction failed: {e}")
+
+    return None
+
 def _should_retry_download(exc: Exception) -> bool:
     msg = str(exc)
     if "Fresh cookies" in msg or ("cookies" in msg.lower() and "needed" in msg):
@@ -115,11 +199,21 @@ class MediaExtractor:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_should_retry_download))
     def download_audio(self, url: str) -> str:
         """
-        使用 yt-dlp 下载并提取 32kbps 单声道 m4a 音频
+        下载并提取音频。对于抖音视频，优先使用 Playwright 真实浏览器无损嗅探音频流（无需 Cookie 零风控），
+        其他平台使用 yt-dlp 下载。
         """
         logger.info(f"Starting audio extraction for URL: {url}")
-        
-        # 预处理重定向 (抖音短链接处理可以在这里扩展)
+
+        # 1. 抖音直连嗅探：绕过 ArgusSecurityPlugin 和 Cookie 拦截
+        if "douyin.com" in url or "v.douyin.com" in url:
+            try:
+                playwright_audio = extract_douyin_audio_playwright(url, self.output_dir)
+                if playwright_audio:
+                    return playwright_audio
+            except Exception as e:
+                logger.warning(f"Playwright Douyin direct extraction failed, falling back to yt-dlp: {e}")
+
+        # 2. 预处理重定向 (抖音短链接处理可以在这里扩展)
         if "v.douyin.com" in url:
             import requests
             try:
