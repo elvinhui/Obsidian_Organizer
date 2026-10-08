@@ -41,6 +41,10 @@ class AuraMemoryEngine:
             if not os.path.exists(directory):
                 logger.warning(f"Scan directory not found: {directory}")
                 continue
+            
+            dir_name = os.path.basename(directory)
+            logger.info(f"📂 Scanning directory: {dir_name} ({directory})...")
+            dir_synced = 0
                 
             for root, _, files in os.walk(directory):
                 for f in files:
@@ -54,11 +58,16 @@ class AuraMemoryEngine:
                             if record:
                                 self.db.upsert_record(record)
                                 synced_count += 1
+                                dir_synced += 1
+                                if synced_count % 20 == 0:
+                                    logger.info(f"  ⚡ [AuraMemory] Synced {synced_count} notes so far...")
                             else:
                                 failed_count += 1
                         except Exception as e:
                             logger.error(f"Failed to sync file {full_path}: {e}")
                             failed_count += 1
+                            
+            logger.info(f"  ✓ Finished {dir_name}: {dir_synced} notes indexed.")
                             
         duration_ms = round((time.time() - start_time) * 1000, 2)
         logger.info(f"✅ AuraMemory Sync complete: {synced_count} synced, {failed_count} failed in {duration_ms}ms")
