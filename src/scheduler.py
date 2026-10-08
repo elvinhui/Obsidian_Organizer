@@ -112,3 +112,35 @@ def mark_task_completed(file_path: str, original_line: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to mark task as completed in {file_path}: {e}")
         return False
+
+def mark_task_failed(file_path: str, original_line: str, tag: str = "#Failed") -> bool:
+    """
+    Marks a task line with a failure tag (e.g. #Failed) so subsequent cycles skip it.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        found = False
+        original_clean = original_line.strip()
+        for i, line in enumerate(lines):
+            if line.strip() == original_clean:
+                if "#待处理" in line:
+                    new_line = line.replace("#待处理", tag, 1)
+                elif tag not in line:
+                    new_line = line.rstrip('\r\n') + f" {tag}\n"
+                else:
+                    new_line = line
+                lines[i] = new_line
+                found = True
+                break
+        if not found:
+            logger.warning(f"Could not find original line in {file_path} to mark as failed.")
+            return False
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        logger.info(f"Marked task as {tag} in {file_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to mark task as failed in {file_path}: {e}")
+        return False
+

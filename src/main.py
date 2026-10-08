@@ -4,7 +4,7 @@ import logging
 import traceback
 import datetime
 from config import INBOX_DIR
-from scheduler import scan_inbox, mark_task_completed
+from scheduler import scan_inbox, mark_task_completed, mark_task_failed
 from extractor import process_url_or_path
 from ai_engine import generate_structured_json, generate_deep_structured_json
 from template_engine import render_and_save
@@ -111,6 +111,7 @@ def process_task(task: dict):
             
         except Exception as e:
             logger.error(f"Feynman Juicer failed for {target}: {e}")
+            mark_task_failed(file_path, task['original_line'], tag="#Failed")
             return False
     # ----------------------------------------------------------------
     
@@ -121,6 +122,7 @@ def process_task(task: dict):
     except Exception as e:
         logger.error(f"Failed to extract content for {payload}: {e}")
         logger.debug(traceback.format_exc())
+        mark_task_failed(file_path, task['original_line'], tag="#Failed")
         return False
         
     # 2. AI Structuring
@@ -139,6 +141,7 @@ def process_task(task: dict):
     except Exception as e:
         logger.error(f"Failed to structure content using AI: {e}")
         logger.debug(traceback.format_exc())
+        mark_task_failed(file_path, task['original_line'], tag="#Failed")
         return False
         
     # 3. Templating & Saving
@@ -148,6 +151,7 @@ def process_task(task: dict):
     except Exception as e:
         logger.error(f"Failed to render and save template: {e}")
         logger.debug(traceback.format_exc())
+        mark_task_failed(file_path, task['original_line'], tag="#Failed")
         return False
         
     # 4. Update Original Task State
