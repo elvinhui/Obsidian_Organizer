@@ -6,11 +6,11 @@ import logging
 import threading
 import feedparser
 import datetime
+import requests
 from google import genai
 from google.genai import types
-from windows_toasts import Toast, WindowsToaster
 
-from config import GEMINI_API_KEY, ASSET_RADAR_DIR
+from config import GEMINI_API_KEY, ASSET_RADAR_DIR, TELEGRAM_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -36,19 +36,37 @@ def save_cache(cache):
         logger.error(f"Failed to save radar cache: {e}")
 
 def send_desktop_alert(title, content, link):
-    """Sends a desktop notification using windows-toasts and saves to Obsidian."""
-    # 1. Desktop Notification in a separate thread so it doesn't block the pipeline
-    def trigger_toast():
-        try:
-            toaster = WindowsToaster('AI Brain 资产雷达')
-            t = Toast()
-            t.text_fields = [f'🚨 {title}', '请前往 Obsidian 查看详情！']
-            toaster.show_toast(t)
-            logger.info("Successfully sent desktop alert.")
-        except Exception as e:
-            logger.error(f"Failed to send desktop alert: {e}")
-            
-    threading.Thread(target=trigger_toast, daemon=True).start()
+    """Sends an alert via Telegram Bot and appends to Radar Report in Obsidian."""
+    # 1. Telegram Alert
+    token = TELEGRAM_BOT_TOKEN or os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if token and chat_id:
+        def trigger_tg():
+            try:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                text = (
+                    f"🚨 *【宏观资产雷达预警】*\n\n"
+                    f"📌 *[{title}]({link})*\n\n"
+                    f"{content}\n\n"
+                    f"_已自动追加至 Obsidian 资产雷达预警报告_"
+                )
+                payload = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "Markdown",
+                    "disable_web_page_preview": False
+                }
+                resp = requests.post(url, json=payload, timeout=15)
+                if resp.status_code == 200 and resp.json().get("ok"):
+                    logger.info("Successfully sent Telegram radar alert.")
+                else:
+                    logger.warning(f"Telegram alert send failed: {resp.text}")
+            except Exception as e:
+                logger.warning(f"Failed to send Telegram alert: {e}")
+                
+        threading.Thread(target=trigger_tg, daemon=True).start()
+    else:
+        logger.debug("Telegram credentials not configured; skipping Telegram alert.")
 
     # 2. Append to Radar Report in Obsidian
     try:

@@ -393,7 +393,7 @@ def save_review_checklist(today: datetime.date, due_cards: list) -> str:
         
     logger.info(f"✅ SM-2 Review list saved and synced: {filepath}")
     
-    # Trigger Desktop Notification
+    # Trigger Desktop Notification (graceful fallback)
     try:
         notification.notify(
             title='🧠 AI Brain 复习提醒',
@@ -403,7 +403,23 @@ def save_review_checklist(today: datetime.date, due_cards: list) -> str:
         )
         logger.info("Sent desktop toast notification.")
     except Exception as e:
-        logger.warning(f"Failed to send desktop notification: {e}")
+        logger.debug(f"Desktop notification not available on headless system: {e}")
+
+    # Trigger Telegram Notification
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if token and chat_id:
+        try:
+            import requests
+            text = f"🧠 *【AI Brain 每日复习就绪】*\n\n今天精选 *{len(due_cards)}* 张核心卡片（已限额平摊）！\n💡 在 Obsidian `间隔复习_{today_str}.md` 中打勾 `- [x]` 即可自动完成推进。"
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+                timeout=10
+            )
+            logger.info("Sent Telegram review notification.")
+        except Exception as e:
+            logger.warning(f"Failed to send Telegram review notification: {e}")
         
     return filepath
 
