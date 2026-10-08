@@ -453,6 +453,10 @@ ERROR: [Douyin] 7686881421591534053: Fresh cookies (not necessarily logged in) a
    - **Guarantees 100% success without needing any cookies or user account credentials!**
 2. **Fail-Fast on yt-dlp Cookie Exceptions**: In `src/feynman_juicer/media_extractor.py`, added a conditional filter `_should_retry_download` to tenacity so that if yt-dlp fallback is ever invoked and encounters cookie blocks, it skips retrying immediately.
 3. **Graceful Pipeline Non-blocking**: `main.py` task processor marks failed tasks with `#Failed` so invalid URLs do not cause endless loops on daily schedule runs.
+4. **Cloud Linux Deployment Requirements**:
+   - Install `playwright` in the venv (`./venv/bin/pip install playwright`).
+   - Install Chromium browser binaries and system OS dependencies (`./venv/bin/playwright install chromium && sudo ./venv/bin/playwright install-deps chromium`).
+   - Launch Chromium with `--no-sandbox` and `--disable-dev-shm-usage` for resource-constrained Linux environments.
 
 
 
