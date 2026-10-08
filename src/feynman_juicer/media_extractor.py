@@ -184,11 +184,27 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                 # Skip dummy player placeholders
                 if 'uuu_265.mp4' in r.url:
                     return
+                # Check for Douyin video detail API response (contains direct CDN links)
+                if 'aweme/v1/web/aweme/detail' in r.url or 'web/detail' in r.url:
+                    try:
+                        detail_json = r.json()
+                        aweme_detail = detail_json.get('aweme_detail', {})
+                        # Extract full video stream URLs (guaranteed to contain full speech track)
+                        v_urls = aweme_detail.get('video', {}).get('play_addr', {}).get('url_list', [])
+                        if v_urls:
+                            logger.info(f"Captured {len(v_urls)} direct video CDN URLs from detail API!")
+                            video_urls.extend(v_urls)
+                        m_urls = aweme_detail.get('music', {}).get('play_url', {}).get('url_list', [])
+                        if m_urls:
+                            audio_urls.extend(m_urls)
+                    except Exception as e:
+                        logger.debug(f"Detail JSON parse error: {e}")
+
                 ct = r.headers.get('content-type', '')
                 if 'media-audio' in r.url:
                     logger.info(f"Captured audio stream: {r.url[:80]}...")
                     audio_urls.append(r.url)
-                elif (('audio' in ct or 'video' in ct) and ('tos-cn' in r.url or 'douyinvod' in r.url or 'zjcdn.com' in r.url or 'bytevcloud' in r.url)) or r.request.resource_type == 'media':
+                elif (('audio' in ct or 'video' in ct) and any(k in r.url for k in ['tos-cn', 'douyinvod', 'zjcdn.com', 'bytevcloud'])) or r.request.resource_type == 'media':
                     logger.info(f"Captured media stream: {r.url[:80]}...")
                     video_urls.append(r.url)
 
@@ -197,11 +213,11 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                 logger.info("Navigating to page (wait_until='commit')...")
                 # Use wait_until='commit' so we don't block on heavy analytics or slow overseas assets
                 page.goto(clean_url, wait_until='commit', timeout=20000)
-                logger.info("Page committed. Listening for media streams (up to 12s)...")
-                for i in range(12):
+                logger.info("Page committed. Listening for detail API & media streams (up to 45s)...")
+                for i in range(45):
                     page.wait_for_timeout(1000)
-                    if audio_urls or video_urls:
-                        logger.info(f"Detected media stream on second {i+1}!")
+                    if video_urls or audio_urls:
+                        logger.info(f"Captured Douyin stream/API on second {i+1}!")
                         break
             except Exception as e:
                 logger.warning(f"Playwright navigation warning: {e}")
@@ -209,21 +225,49 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                 logger.info("Closing browser...")
                 browser.close()
 
-        target_stream_url = audio_urls[0] if audio_urls else (video_urls[0] if video_urls else None)
+        # Prioritize direct CDN URLs (no redirect, fastest throughput)
+        cdn_video = [u for u in video_urls if any(k in u for k in ['zjcdn', 'tos-cn', 'douyinvod', 'bytevcloud'])]
+        target_stream_url = cdn_video[0] if cdn_video else (video_urls[0] if video_urls else (audio_urls[0] if audio_urls else None))
+
         if not target_stream_url:
-            logger.warning(f"No audio streams intercepted by Playwright for {clean_url}")
+            logger.warning(f"No audio/video streams intercepted by Playwright for {clean_url}")
             return None
 
-        temp_download = os.path.join(output_dir, f"temp_{video_id}.bin")
         out_file = os.path.join(output_dir, f"douyin_{video_id}.m4a")
+        import shutil
+        import subprocess
+        ffmpeg_bin = shutil.which("ffmpeg")
 
-        logger.info(f"📥 Downloading intercepted Douyin stream ({len(audio_urls)} audio, {len(video_urls)} video streams found)...")
+        # 1. High-speed Direct FFmpeg HTTP Streaming Extraction
+        # Avoids downloading large 100MB-700MB video files by using HTTP Range streaming
+        if ffmpeg_bin:
+            try:
+                logger.info(f"🎧 Extracting audio directly via FFmpeg stream from CDN: {target_stream_url[:80]}...")
+                cmd = [
+                    ffmpeg_bin, "-y",
+                    "-headers", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\nReferer: https://www.douyin.com/\r\n",
+                    "-i", target_stream_url,
+                    "-vn", "-acodec", "aac", "-b:a", "32k", "-ar", "16000",
+                    out_file
+                ]
+                proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=120)
+                if proc.returncode == 0 and os.path.exists(out_file) and os.path.getsize(out_file) > 1000:
+                    logger.info(f"✅ Successfully streamed Douyin audio ({os.path.getsize(out_file)} bytes) to {out_file}")
+                    return out_file
+                else:
+                    logger.warning(f"FFmpeg stream extraction failed (code {proc.returncode}), falling back to file download")
+            except Exception as e:
+                logger.warning(f"FFmpeg stream failed ({e}), falling back to file download")
+
+        # 2. Fallback: Download file chunk-by-chunk and convert
+        temp_download = os.path.join(output_dir, f"temp_{video_id}.bin")
+        logger.info(f"📥 Downloading intercepted Douyin stream to temporary file...")
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
             'Referer': 'https://www.douyin.com/'
         }
 
-        with requests.get(target_stream_url, headers=headers, stream=True, timeout=30) as r:
+        with requests.get(target_stream_url, headers=headers, stream=True, timeout=60) as r:
             r.raise_for_status()
             downloaded = 0
             with open(temp_download, 'wb') as f:
@@ -232,10 +276,6 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                     downloaded += len(chunk)
             logger.info(f"Stream downloaded ({downloaded / 1024 / 1024:.2f} MB). Processing audio...")
 
-        # Optimize audio with ffmpeg if available to reduce size for Whisper/Groq
-        import shutil
-        import subprocess
-        ffmpeg_bin = shutil.which("ffmpeg")
         if ffmpeg_bin and os.path.exists(temp_download):
             try:
                 cmd = [ffmpeg_bin, "-y", "-i", temp_download, "-vn", "-acodec", "aac", "-b:a", "32k", "-ar", "16000", out_file]
@@ -243,7 +283,7 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                 if os.path.exists(temp_download):
                     os.remove(temp_download)
             except Exception as e:
-                logger.warning(f"FFmpeg extraction failed ({e}), using raw stream as audio file")
+                logger.warning(f"FFmpeg conversion failed ({e}), using raw stream as audio file")
                 if os.path.exists(out_file):
                     os.remove(out_file)
                 os.rename(temp_download, out_file)
