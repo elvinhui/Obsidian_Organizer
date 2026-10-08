@@ -198,16 +198,11 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                 # Use wait_until='commit' so we don't block on heavy analytics or slow overseas assets
                 page.goto(clean_url, wait_until='commit', timeout=20000)
                 logger.info("Page committed. Listening for media streams (up to 12s)...")
-                # Dynamically wait up to 12 seconds for media stream, dismissing popups and triggering play
-                for _ in range(12):
+                for i in range(12):
                     page.wait_for_timeout(1000)
                     if audio_urls or video_urls:
+                        logger.info(f"Detected media stream on second {i+1}!")
                         break
-                    try:
-                        page.keyboard.press("Escape")
-                        page.evaluate("document.querySelectorAll('video').forEach(v => { v.muted = true; v.play(); })")
-                    except:
-                        pass
             except Exception as e:
                 logger.warning(f"Playwright navigation warning: {e}")
             finally:
@@ -230,9 +225,12 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
 
         with requests.get(target_stream_url, headers=headers, stream=True, timeout=30) as r:
             r.raise_for_status()
+            downloaded = 0
             with open(temp_download, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=16384):
+                for chunk in r.iter_content(chunk_size=65536):
                     f.write(chunk)
+                    downloaded += len(chunk)
+            logger.info(f"Stream downloaded ({downloaded / 1024 / 1024:.2f} MB). Processing audio...")
 
         # Optimize audio with ffmpeg if available to reduce size for Whisper/Groq
         import shutil
