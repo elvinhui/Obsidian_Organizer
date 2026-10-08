@@ -1,16 +1,67 @@
 import os
 import yt_dlp
 import logging
-from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Optional
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 logger = logging.getLogger(__name__)
+
+def find_or_generate_cookies() -> Optional[str]:
+    """Finds existing cookies.txt or auto-generates it from Playwright douyin_auth.json."""
+    for p in [
+        os.path.join(os.path.dirname(__file__), "..", "cookies.txt"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "cookies.txt"),
+        os.path.join(os.getcwd(), "cookies.txt")
+    ]:
+        abs_p = os.path.abspath(p)
+        if os.path.exists(abs_p):
+            return abs_p
+
+    for auth_p in [
+        os.path.join(os.getcwd(), "lightsail_bot", "douyin_auth.json"),
+        os.path.join(os.getcwd(), "douyin_auth.json"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "lightsail_bot", "douyin_auth.json")
+    ]:
+        abs_auth = os.path.abspath(auth_p)
+        if os.path.exists(abs_auth):
+            try:
+                import json
+                with open(abs_auth, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                cookies = data.get('cookies', [])
+                if cookies:
+                    out_txt = os.path.join(os.getcwd(), "cookies.txt")
+                    with open(out_txt, 'w', encoding='utf-8') as f:
+                        f.write("# Netscape HTTP Cookie File\n\n")
+                        for c in cookies:
+                            domain = c.get('domain', '')
+                            include_subdomains = 'TRUE' if domain.startswith('.') else 'FALSE'
+                            path = c.get('path', '/')
+                            secure = 'TRUE' if c.get('secure', False) else 'FALSE'
+                            expiration = int(c.get('expires', 0))
+                            if expiration < 0:
+                                expiration = 0
+                            name = c.get('name', '')
+                            value = c.get('value', '')
+                            f.write(f"{domain}\t{include_subdomains}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n")
+                    logger.info(f"Auto-generated Netscape cookies.txt from {abs_auth}")
+                    return out_txt
+            except Exception as e:
+                logger.warning(f"Failed to auto-generate cookies.txt from {abs_auth}: {e}")
+    return None
+
+def _should_retry_download(exc: Exception) -> bool:
+    msg = str(exc)
+    if "Fresh cookies" in msg or ("cookies" in msg.lower() and "needed" in msg):
+        return False
+    return True
 
 class MediaExtractor:
     def __init__(self, output_dir="temp_audio"):
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), retry=retry_if_exception(_should_retry_download))
     def download_audio(self, url: str) -> str:
         """
         使用 yt-dlp 下载并提取 32kbps 单声道 m4a 音频
@@ -27,10 +78,7 @@ class MediaExtractor:
             except Exception as e:
                 logger.warning(f"Failed to resolve short link: {e}")
 
-        # 动态获取 cookies.txt 绝对路径
-        cookies_path = os.path.join(os.path.dirname(__file__), "..", "cookies.txt")
-        if not os.path.exists(cookies_path):
-            cookies_path = os.path.join(os.path.dirname(__file__), "..", "..", "cookies.txt")
+        cookies_path = find_or_generate_cookies()
 
         ydl_opts = {
             'format': 'bestaudio/worst',  # 最低的音频质量即可满足转录
@@ -47,7 +95,7 @@ class MediaExtractor:
             'no_warnings': True,
         }
         
-        if os.path.exists(cookies_path):
+        if cookies_path and os.path.exists(cookies_path):
             ydl_opts['cookiefile'] = cookies_path
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

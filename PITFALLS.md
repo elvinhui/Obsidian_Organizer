@@ -429,6 +429,28 @@ When multiple background threads, scheduled cron jobs, or rapid event-driven fil
 2. **FTS Re-indexing Consistency**: After the atomic upsert, query the row's `id` to safely `DELETE FROM memory_fts WHERE rowid = ?` and re-insert the updated full-text tokens into `memory_fts`.
 3. **Idempotent Test Verification**: Added `test_db_upsert_on_conflict_idempotent` in `tests/test_aura_memory.py` to ensure idempotency and prevent regressions.
 
+---
+
+## 📱 23. Douyin Web WAF Anti-Scraping Blocking Headless Cloud Datacenter IPs (Fresh cookies needed)
+
+### 🔴 Symptom
+When executing the knowledge engine pipeline or running `src/run_daily.py` on Linux (AWS Lightsail / EC2), processing tasks in `00 Inbox (收件箱)` containing Douyin links fails with:
+```text
+[Douyin] 7686881421591534053: Downloading web detail JSON
+ERROR: [Douyin] 7686881421591534053: Fresh cookies (not necessarily logged in) are needed
+```
+
+### 🔍 Root Cause
+1. **Missing Cookies on Cloud Server**: Credential and cookie files (`cookies.txt`, `cookies.json`) are intentionally excluded by `.gitignore` for security. A fresh `git clone` on cloud servers therefore lacks Douyin cookies.
+2. **Datacenter IP Throttling**: Douyin Web aggressively blocks anonymous web detail API requests originating from public cloud datacenter IP subnets (AWS/GCP/Alibaba) unless valid session cookies (e.g., `ttwid`, `odin_tt`) are passed with the request.
+3. **Tenacity Blind Retry Stall**: Prior to optimization, `MediaExtractor.download_audio` configured a blind 3-attempt exponential backoff retry. Because missing cookie authentication is a permanent error rather than a transient network blip, the process wasted 20-30 seconds hanging on futile retries.
+
+### 🟩 Verified Solution
+1. **Fail-Fast on Cookie Exceptions**: In `src/feynman_juicer/media_extractor.py`, added a conditional filter `_should_retry_download` to tenacity. If `Fresh cookies` is encountered, skip retrying immediately and log an informative warning.
+2. **Automatic Cookie Fallback Discovery**: Implement `find_or_generate_cookies()` to search for `cookies.txt` or auto-generate a Netscape cookie file from `lightsail_bot/douyin_auth.json` (Playwright state storage) if present.
+3. **Graceful Pipeline Non-blocking**: Ensure `main.py` task processor wraps individual URL media extraction in `try...except`, logging the item failure and proceeding seamlessly to subsequent pipeline phases (Daily Digest, Spaced Review, Asset Radar, Polar Star).
+
+
 
 
 
