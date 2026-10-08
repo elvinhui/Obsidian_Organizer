@@ -114,11 +114,15 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
 
         os.makedirs(output_dir, exist_ok=True)
 
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+        }
+
         # 1. Resolve short link
         video_id = None
         if "v.douyin.com" in url:
             try:
-                resp = requests.head(url, allow_redirects=True, timeout=10)
+                resp = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
                 url = resp.url
                 logger.info(f"Resolved Douyin short link to: {url}")
             except Exception as e:
@@ -133,6 +137,7 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
             clean_url = url
 
         audio_urls = []
+        video_urls = []
         logger.info(f"🎭 Launching headless browser for Douyin clean URL: {clean_url}")
 
         with sync_playwright() as p:
@@ -147,27 +152,40 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
             page = context.new_page()
 
             def on_res(r):
+                # Skip dummy player placeholders
+                if 'uuu_265.mp4' in r.url:
+                    return
                 ct = r.headers.get('content-type', '')
-                if 'media-audio' in r.url or (('audio' in ct or 'video' in ct) and 'tos-cn' in r.url):
+                if 'media-audio' in r.url:
+                    logger.info(f"Captured audio stream: {r.url[:80]}...")
                     audio_urls.append(r.url)
+                elif (('audio' in ct or 'video' in ct) and ('tos-cn' in r.url or 'douyinvod' in r.url or 'zjcdn.com' in r.url or 'bytevcloud' in r.url)) or r.request.resource_type == 'media':
+                    logger.info(f"Captured media stream: {r.url[:80]}...")
+                    video_urls.append(r.url)
 
             page.on('response', on_res)
             try:
-                page.goto(clean_url, wait_until='domcontentloaded', timeout=20000)
-                page.wait_for_timeout(4000)
+                # Use wait_until='commit' so we don't block on heavy analytics or slow overseas assets
+                page.goto(clean_url, wait_until='commit', timeout=30000)
+                # Dynamically wait up to 15 seconds for media stream
+                for _ in range(15):
+                    page.wait_for_timeout(1000)
+                    if audio_urls or video_urls:
+                        break
             except Exception as e:
                 logger.warning(f"Playwright navigation warning: {e}")
             finally:
                 browser.close()
 
-        if not audio_urls:
+        target_stream_url = audio_urls[0] if audio_urls else (video_urls[0] if video_urls else None)
+        if not target_stream_url:
             logger.warning(f"No audio streams intercepted by Playwright for {clean_url}")
             return None
 
-        target_stream_url = audio_urls[0]
+        temp_download = os.path.join(output_dir, f"temp_{video_id}.bin")
         out_file = os.path.join(output_dir, f"douyin_{video_id}.m4a")
 
-        logger.info(f"📥 Downloading intercepted Douyin stream ({len(audio_urls)} streams found)...")
+        logger.info(f"📥 Downloading intercepted Douyin stream ({len(audio_urls)} audio, {len(video_urls)} video streams found)...")
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
             'Referer': 'https://www.douyin.com/'
@@ -175,9 +193,29 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
 
         with requests.get(target_stream_url, headers=headers, stream=True, timeout=30) as r:
             r.raise_for_status()
-            with open(out_file, 'wb') as f:
+            with open(temp_download, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=16384):
                     f.write(chunk)
+
+        # Optimize audio with ffmpeg if available to reduce size for Whisper/Groq
+        import shutil
+        import subprocess
+        ffmpeg_bin = shutil.which("ffmpeg")
+        if ffmpeg_bin and os.path.exists(temp_download):
+            try:
+                cmd = [ffmpeg_bin, "-y", "-i", temp_download, "-vn", "-acodec", "aac", "-b:a", "32k", "-ar", "16000", out_file]
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if os.path.exists(temp_download):
+                    os.remove(temp_download)
+            except Exception as e:
+                logger.warning(f"FFmpeg extraction failed ({e}), using raw stream as audio file")
+                if os.path.exists(out_file):
+                    os.remove(out_file)
+                os.rename(temp_download, out_file)
+        elif os.path.exists(temp_download):
+            if os.path.exists(out_file):
+                os.remove(out_file)
+            os.rename(temp_download, out_file)
 
         if os.path.exists(out_file) and os.path.getsize(out_file) > 1000:
             logger.info(f"✅ Successfully downloaded Douyin audio ({os.path.getsize(out_file)} bytes) to {out_file}")
