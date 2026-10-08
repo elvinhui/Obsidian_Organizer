@@ -142,6 +142,7 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
         logger.info(f"🎭 Launching headless browser for Douyin clean URL: {clean_url}")
 
         with sync_playwright() as p:
+            logger.info("Starting Chromium engine (Playwright)...")
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -155,6 +156,7 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
                     '--no-default-browser-check'
                 ]
             )
+            logger.info("Chromium engine started. Setting up browser context...")
 
             # Check if douyin_auth.json exists for authenticated bypass
             auth_file = None
@@ -192,8 +194,10 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
 
             page.on('response', on_res)
             try:
+                logger.info("Navigating to page (wait_until='commit')...")
                 # Use wait_until='commit' so we don't block on heavy analytics or slow overseas assets
                 page.goto(clean_url, wait_until='commit', timeout=20000)
+                logger.info("Page committed. Listening for media streams (up to 12s)...")
                 # Dynamically wait up to 12 seconds for media stream, dismissing popups and triggering play
                 for _ in range(12):
                     page.wait_for_timeout(1000)
@@ -207,6 +211,7 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
             except Exception as e:
                 logger.warning(f"Playwright navigation warning: {e}")
             finally:
+                logger.info("Closing browser...")
                 browser.close()
 
         target_stream_url = audio_urls[0] if audio_urls else (video_urls[0] if video_urls else None)
