@@ -14,7 +14,7 @@ from .db import get_latest_psi5, save_memory, init_db
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def perceive_environment() -> AgentContext:
-    """Reads Inbox tasks, recent insights, and identity kernel to form context."""
+    """Reads Inbox tasks, recent insights, active projects, and identity kernel to form context."""
     pending_tasks = []
     if os.path.exists(INBOX_DIR):
         for f in os.listdir(INBOX_DIR):
@@ -22,9 +22,27 @@ def perceive_environment() -> AgentContext:
                 pending_tasks.append(f)
                 
     recent_insights = []
-    if os.path.exists(INSIGHTS_DIR):
+    active_projects = []
+    review_stats = {}
+    
+    # 1. Fast perception via AuraMemory Engine
+    try:
+        from aura_memory.engine import get_engine
+        engine = get_engine()
+        if engine and engine.db:
+            profile = engine.get_profile()
+            recent_insights = [item['title'] for item in profile.recent_insights[:5]]
+            active_projects = [item['title'] for item in profile.active_projects[:5]]
+            review_stats = {
+                "due_reviews_count": profile.due_reviews_count,
+                "total_records": profile.total_records
+            }
+    except Exception as e:
+        logger.warning(f"AuraMemory perception fallback: {e}")
+        
+    # 2. Fallback to filesystem if AuraMemory was empty or unavailable
+    if not recent_insights and os.path.exists(INSIGHTS_DIR):
         files = [f for f in os.listdir(INSIGHTS_DIR) if f.endswith('.md')]
-        # get 3 most recent insights
         files.sort(key=lambda x: os.path.getmtime(os.path.join(INSIGHTS_DIR, x)), reverse=True)
         recent_insights = files[:3]
         
@@ -36,6 +54,8 @@ def perceive_environment() -> AgentContext:
     return AgentContext(
         pending_tasks=pending_tasks,
         recent_insights=recent_insights,
+        active_projects=active_projects,
+        review_stats=review_stats,
         identity_kernel=identity_kernel
     )
 
@@ -43,7 +63,7 @@ def calculate_psi5_before(context: AgentContext) -> PSI5State:
     """Calculate pre-simulation PSI5 state based on recent history and environment."""
     current_state = get_latest_psi5()
     
-    # Simple heuristics: 
+    # Heuristics:
     # High pending tasks -> low certainty, low energy
     if len(context.pending_tasks) > 5:
         current_state.certainty = max(0, current_state.certainty - 10)
@@ -52,6 +72,14 @@ def calculate_psi5_before(context: AgentContext) -> PSI5State:
     # Having new insights -> high competence
     if len(context.recent_insights) > 0:
         current_state.competence = min(100, current_state.competence + 5)
+
+    # Active projects in progress boost autonomy & competence
+    if len(context.active_projects) > 0:
+        current_state.autonomy = min(100, current_state.autonomy + 5)
+        
+    # Heavy review backlog -> slight energy drain
+    if context.review_stats.get("due_reviews_count", 0) > 10:
+        current_state.energy = max(0, current_state.energy - 5)
         
     return current_state
 
@@ -67,7 +95,9 @@ def run_forward_simulation(context: AgentContext, psi5_before: PSI5State) -> Sim
     
     【当前状态】
     Inbox 待办任务: {', '.join(context.pending_tasks) if context.pending_tasks else '无'}
+    活跃推进项目: {', '.join(context.active_projects) if context.active_projects else '无'}
     最近新洞见: {', '.join(context.recent_insights) if context.recent_insights else '无'}
+    待复习卡片数: {context.review_stats.get('due_reviews_count', 0)}
     推演前心理状态 (0-100): 
     能量(Energy)={psi5_before.energy}, 确定感(Certainty)={psi5_before.certainty}, 胜任感(Competence)={psi5_before.competence}
     
@@ -76,6 +106,7 @@ def run_forward_simulation(context: AgentContext, psi5_before: PSI5State) -> Sim
     2. 计算推演后的 PSI5 状态，给出数值。
     3. 给出给“肉身自我”的具体行动建议。
     """
+
     
     # Call Gemini with structured output
     response = client.models.generate_content(

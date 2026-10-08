@@ -9,6 +9,12 @@ yfinance
 pandas
 matplotlib
 python-frontmatter
-
 numpy
 pyyaml
+fastapi
+uvicorn
+watchdog
+APScheduler
+plyer
+python-telegram-bot
+groq

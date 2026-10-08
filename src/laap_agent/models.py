@@ -19,8 +19,10 @@ class AgentContext(BaseModel):
     """
     pending_tasks: List[str] = Field(default_factory=list)
     recent_insights: List[str] = Field(default_factory=list)
+    active_projects: List[str] = Field(default_factory=list)
     review_stats: dict = Field(default_factory=dict)
     identity_kernel: str = Field(default="")
+
 
 class SimulationResult(BaseModel):
     """

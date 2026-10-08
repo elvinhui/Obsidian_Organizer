@@ -25,9 +25,15 @@ from laap_agent.engine import run_daily_simulation
 from rss_filter import process_daily_rss_feeds
 from asset_radar import process_asset_radar
 from polar_star_dashboard import generate_dashboard
+from aura_memory.api import router as aura_memory_router
+from aura_memory.engine import get_engine
+
+# Unify AuraMemory into FastAPI server
+laap_app.include_router(aura_memory_router)
 
 # Configure logging: full detail to file, only important messages to console
-log_dir = r"C:\Users\KATANA 17 B13V\Documents\projects\Obsidianorganizer\AI brain log"
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+log_dir = os.getenv("LOG_DIR", os.path.join(project_root, "AI brain log"))
 os.makedirs(log_dir, exist_ok=True)
 current_date = datetime.date.today().strftime("%Y-%m-%d")
 log_file_path = os.path.join(log_dir, f"{current_date}.log")
@@ -150,83 +156,112 @@ def process_task(task: dict):
 
 def run_pipeline():
     logger.info("Starting Obsidian AI Brain Engine Pipeline...")
+    aura_engine = get_engine()
+    today_str = datetime.date.today().strftime("%Y-%m-%d")
+    today_compact = datetime.date.today().strftime("%Y%m%d")
+    from config import OBSIDIAN_BASE_PATH, LAAP_FEEDBACK_DIR, POLAR_STAR_DIR
     
-    # Phase 0: Resolve Google Drive conflicts
+    # Phase 0: Resolve Google Drive conflicts (Lightweight, every cycle)
     try:
         process_conflict_resolution()
     except Exception as e:
         logger.error(f"Conflict resolution failed: {e}")
         logger.debug(traceback.format_exc())
 
-    # Phase 1: Process pending inbox tasks
+    # Phase 1: Process pending inbox tasks (Fallback for unhandled items)
     tasks = scan_inbox(INBOX_DIR)
     if not tasks:
-        logger.info("No pending tasks found in Inbox.")
+        logger.debug("No pending tasks found in Inbox.")
     else:
-        logger.info(f"Found {len(tasks)} pending tasks.")
+        logger.info(f"Found {len(tasks)} pending tasks in Inbox.")
         success_count = 0
         for task in tasks:
             if process_task(task):
                 success_count += 1
-        logger.info(f"Finished processing Inbox. Successfully handled {success_count}/{len(tasks)} tasks.")
+        logger.info(f"Finished processing Inbox: {success_count}/{len(tasks)} handled.")
 
-    # Phase 2: Convert ideas to projects
+    # Phase 2: Convert ideas to projects (Only if pending ideas exist)
     try:
         process_ideas_to_projects()
     except Exception as e:
         logger.error(f"Idea conversion failed: {e}")
         logger.debug(traceback.format_exc())
 
-    # Phase 3: Anki card generation
+    # Phase 3: Anki card generation (Only if pending cards exist)
     try:
         process_anki_generation()
     except Exception as e:
         logger.error(f"Anki generation failed: {e}")
         logger.debug(traceback.format_exc())
 
-    # Phase 4: Generate daily digest (always runs after processing)
-    try:
-        logger.info("📰 Generating daily knowledge digest...")
-        digest_path = generate_and_save_digest(days=1)
-        if digest_path:
-            logger.info(f"📰 Daily digest saved: {digest_path}")
-    except Exception as e:
-        logger.error(f"Daily digest generation failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 4: Generate daily digest (Daily idempotent: Once per day)
+    digest_path = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "每日复盘", f"知识日报_{today_str}.md")
+    if not os.path.exists(digest_path) and aura_engine.should_run_task("daily_digest", interval_days=1):
+        try:
+            logger.info("📰 Generating daily knowledge digest (first run today)...")
+            res = generate_and_save_digest(days=1)
+            if res:
+                aura_engine.record_task_run("daily_digest")
+                logger.info(f"📰 Daily digest saved: {res}")
+        except Exception as e:
+            logger.error(f"Daily digest generation failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("📰 Daily digest already generated today, skipping.")
 
-    # Phase 5: Explore project ideas automatically (runs once per day)
-    try:
-        logger.info("🔍 Starting project exploration...")
-        result = explore_and_save()
-        if result:
-            logger.info(f"🚀 Project exploration complete: {result}")
-    except Exception as e:
-        logger.error(f"Project exploration failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 5: Explore project ideas automatically (Daily idempotent: Once per day)
+    project_explore_path = os.path.join(OBSIDIAN_BASE_PATH, "02 项目库_Projects", f"Python自动化项目探索_{today_compact}.md")
+    if not os.path.exists(project_explore_path) and aura_engine.should_run_task("project_explorer", interval_days=1):
+        try:
+            logger.info("🔍 Starting project exploration (first run today)...")
+            result = explore_and_save()
+            if result:
+                aura_engine.record_task_run("project_explorer")
+                logger.info(f"🚀 Project exploration complete: {result}")
+        except Exception as e:
+            logger.error(f"Project exploration failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("🔍 Project exploration already generated today, skipping.")
 
-    # Phase 6: Merge similar skills in the library
-    try:
-        logger.info("🔄 Starting skill library deduplication...")
-        process_skill_merging()
-    except Exception as e:
-        logger.error(f"Skill merging failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 6: Merge similar skills in the library (Periodic: Once every 3 days)
+    if aura_engine.should_run_task("skill_merger", interval_days=3):
+        try:
+            logger.info("🔄 Running periodic skill library deduplication (once every 3 days)...")
+            process_skill_merging()
+            aura_engine.record_task_run("skill_merger")
+        except Exception as e:
+            logger.error(f"Skill merging failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("🔄 Skill merging was run recently (<3 days), skipping.")
 
-    # Phase 7: Auto-link knowledge cards with [[双链]]
-    try:
-        logger.info("🌐 Starting knowledge graph auto-linking...")
-        process_auto_linking()
-    except Exception as e:
-        logger.error(f"Auto-linking failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 7: Auto-link knowledge cards with [[双链]] (Daily idempotent: Once per day)
+    if aura_engine.should_run_task("auto_linker", interval_days=1):
+        try:
+            logger.info("🌐 Running knowledge graph auto-linking (first run today)...")
+            process_auto_linking()
+            aura_engine.record_task_run("auto_linker")
+        except Exception as e:
+            logger.error(f"Auto-linking failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("🌐 Knowledge graph auto-linking already ran today, skipping.")
 
-    # Phase 8: Spaced repetition review scheduler
-    try:
-        logger.info("🧠 Starting Spaced Repetition Scheduler...")
-        process_spaced_review()
-    except Exception as e:
-        logger.error(f"Spaced review failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 8: Spaced repetition review scheduler (Daily idempotent: Once per day)
+    review_path = os.path.join(OBSIDIAN_BASE_PATH, "03 资产库_Areas", "每日复习", f"间隔复习_{today_str}.md")
+    if not os.path.exists(review_path) and aura_engine.should_run_task("spaced_review", interval_days=1):
+        try:
+            logger.info("🧠 Running Spaced Repetition Scheduler (first run today)...")
+            res = process_spaced_review()
+            if res:
+                aura_engine.record_task_run("spaced_review")
+        except Exception as e:
+            logger.error(f"Spaced review failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("🧠 SM-2 review checklist already generated today, skipping.")
+
     # Phase 9: Process answered open questions into Insights
     try:
         logger.info("💡 Scanning for answered Open Questions...")
@@ -235,66 +270,84 @@ def run_pipeline():
         logger.error(f"Open questions processing failed: {e}")
         logger.debug(traceback.format_exc())
 
-    # Phase 10: Weekly Cognitive Report (Runs on Mondays)
-    try:
-        # weekday() == 0 is Monday
-        if datetime.date.today().weekday() == 0:
+    # Phase 10: Weekly Cognitive Report (Periodic: Mondays, once per week)
+    if datetime.date.today().weekday() == 0 and aura_engine.should_run_task("weekly_report", interval_days=6):
+        try:
             logger.info("📅 Today is Monday! Generating Weekly Cognitive Report...")
             generate_weekly_cognitive_report()
-    except Exception as e:
-        logger.error(f"Weekly report generation failed: {e}")
-        logger.debug(traceback.format_exc())
+            aura_engine.record_task_run("weekly_report")
+        except Exception as e:
+            logger.error(f"Weekly report generation failed: {e}")
+            logger.debug(traceback.format_exc())
 
-    # Phase 12: Digital Lifeform (LAAP) Simulation
-    try:
-        logger.info("🧬 Running Personal LAAP Agent Forward Simulation...")
-        run_daily_simulation()
-    except Exception as e:
-        logger.error(f"LAAP Agent simulation failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 12: Digital Lifeform (LAAP) Simulation (Daily idempotent: Once per day)
+    laap_card = os.path.join(LAAP_FEEDBACK_DIR, f"🧬 分身推演报告_{today_str}.md")
+    if not os.path.exists(laap_card) and aura_engine.should_run_task("laap_simulation", interval_days=1):
+        try:
+            logger.info("🧬 Running Personal LAAP Agent Forward Simulation (first run today)...")
+            run_daily_simulation()
+            aura_engine.record_task_run("laap_simulation")
+        except Exception as e:
+            logger.error(f"LAAP Agent simulation failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("🧬 LAAP simulation already generated today, skipping.")
 
-    # Phase 13: 每日反脆弱认知简报 (Daily Anti-Fragile RSS Filter)
-    # Moved to Lightsail Telegram Bot (08:00 AM scheduled push)
-    # try:
-    #     process_daily_rss_feeds()
-    # except Exception as e:
-    #     logger.error(f"Daily RSS Anti-Fragility Filter failed: {e}")
-    #     logger.debug(traceback.format_exc())
-
-    # Phase 13.5: 自动规格代码生成 (Auto SDD CodeGen)
-    # 策略：只自动执行带有 #SDD_Pending 标签的项目（来自 idea_to_project）
+    # Phase 13.5: Auto SDD CodeGen (Only if #SDD_Pending exists)
     try:
         from sdd_agent import auto_process_pending_specs
         auto_process_pending_specs()
     except ImportError:
-        logger.warning("sdd_agent module not found or missing dependencies.")
+        pass
     except Exception as e:
         logger.error(f"Auto SDD CodeGen failed: {e}")
         logger.debug(traceback.format_exc())
 
-    # Phase 14: 资产雷达监控 (Asset Radar)
+    # Phase 14: Asset Radar
     try:
         process_asset_radar()
     except Exception as e:
         logger.error(f"Asset Radar failed: {e}")
         logger.debug(traceback.format_exc())
 
-    # Phase 15: 北极星看板生成 (Polar Star Dashboard)
-    try:
-        logger.info("🧭 Running North Star Dashboard Generator...")
-        generate_dashboard()
-    except Exception as e:
-        logger.error(f"North Star Dashboard generation failed: {e}")
-        logger.debug(traceback.format_exc())
+    # Phase 15: Polar Star Dashboard (Daily idempotent: Once per day)
+    dashboard_path = os.path.join(POLAR_STAR_DIR, "北极星监控看板.md")
+    dashboard_updated_today = False
+    if os.path.exists(dashboard_path):
+        mtime_date = datetime.datetime.fromtimestamp(os.path.getmtime(dashboard_path)).strftime("%Y-%m-%d")
+        if mtime_date == today_str:
+            dashboard_updated_today = True
+
+    if not dashboard_updated_today and aura_engine.should_run_task("polar_star_dashboard", interval_days=1):
+        try:
+            logger.info("🧭 Running North Star Dashboard Generator (first run today)...")
+            generate_dashboard()
+            aura_engine.record_task_run("polar_star_dashboard")
+        except Exception as e:
+            logger.error(f"North Star Dashboard generation failed: {e}")
+            logger.debug(traceback.format_exc())
+    else:
+        logger.info("🧭 North Star Dashboard already generated today, skipping.")
 
     logger.info("Obsidian AI Brain Engine Pipeline Finished.")
+
 
 def start_pipeline_in_background():
     """Run the pipeline immediately in a separate thread so it doesn't block the server startup."""
     threading.Thread(target=run_pipeline, daemon=True).start()
 
 def main():
-    logger.info("Starting Obsidian AI Brain Engine with LAAP Sidecar...")
+    logger.info("Starting Obsidian AI Brain Engine with AuraMemory & LAAP Sidecar...")
+    
+    # 0. Start AuraMemory Engine & Watcher
+    aura_engine = get_engine()
+    # Register full task pipeline for real-time event-driven processing
+    aura_engine.inbox_worker.set_task_processor(process_task)
+    try:
+        aura_engine.start()
+    except Exception as e:
+        logger.error(f"Failed to start AuraMemory Engine: {e}")
+
     
     # 1. Setup Scheduler
     scheduler = BackgroundScheduler()
@@ -306,9 +359,12 @@ def main():
     start_pipeline_in_background()
     
     # (Telegram bots are now running separately on Lightsail)
-    # 4. Start FastAPI Server
-    logger.info("🚀 Starting LAAP Agent FastAPI Server on port 8888...")
-    uvicorn.run(laap_app, host="0.0.0.0", port=8888, log_level="info")
+    # 4. Start Unified FastAPI Server (Port 8888)
+    logger.info("🚀 Starting Unified AuraMemory & LAAP Server on port 8888...")
+    try:
+        uvicorn.run(laap_app, host="0.0.0.0", port=8888, log_level="info")
+    finally:
+        aura_engine.stop()
 
 if __name__ == "__main__":
     main()

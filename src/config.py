@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -10,8 +11,14 @@ JINA_API_KEY = os.getenv("JINA_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Paths
-OBSIDIAN_BASE_PATH = r"G:\我的云端硬盘\Obsidian\Knowledge Base"
+# Paths (defensive normalization for Windows/Linux/Cloud compatibility)
+raw_base_path = os.getenv("OBSIDIAN_BASE_PATH", r"G:\我的云端硬盘\Obsidian\Knowledge Base").strip()
+path_parts = [p.strip() for p in re.split(r'[/\\]', raw_base_path) if p.strip()]
+if os.name == 'nt' and len(path_parts) > 0 and ':' in path_parts[0]:
+    drive = path_parts[0]
+    OBSIDIAN_BASE_PATH = drive + "\\" + "\\".join(path_parts[1:])
+else:
+    OBSIDIAN_BASE_PATH = ("/" if raw_base_path.startswith("/") else "") + "/".join(path_parts)
 INBOX_DIR = os.path.join(OBSIDIAN_BASE_PATH, "00 Inbox (收件箱)")
 SKILLS_DIR = os.path.join(OBSIDIAN_BASE_PATH, "05 技能库")
 PROJECTS_DIR = os.path.join(OBSIDIAN_BASE_PATH, "02 项目库_Projects")

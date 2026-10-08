@@ -1,1 +1,12 @@
 .prompt_cache.json
+.env
+*.env
+*.log
+*.mp4
+cookies.txt
+cookies.json
+*.db*
+.pytest_cache/
+__pycache__/
+scratch/
+"AI brain log/"

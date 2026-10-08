@@ -39,7 +39,13 @@ def generate_structured_json(raw_text: str, context_tag: str = "") -> dict:
     2. 'title': A concise, impactful title (Core concept + Specific scenario).
     3. 'tags': A list of relevant tags (e.g., ["#AI", "#Python"]).
     4. 'core_concepts': A one-sentence summary of the core insight.
-    5. 'action_sop': Bulleted list of actionable steps. How can this be applied? What is the SOP?
+    5. 'action_sop': 【核心铁律：严禁大而化之的哲学鸡汤与空洞口号！必须强制格式化为以下【If-Then 战备决策触发器】Markdown 格式】：
+       - **🚨 IF（触发情境）**：明确客观的情绪/身体信号或具体外界场景（例如：“当坐在工位超过10分钟未开始并产生拖延念头时”、“当写完汇报准备提交前”，绝不能是空洞口号）。
+       - **🎯 THEN（极简执行清单，严禁超过3步）**：
+         - [ ] 1. 物理阻断/无脑微启动（<5秒，如离开工位倒杯水、敲下一行TODO注释）
+         - [ ] 2. 核心操作动作（低阻力可执行具体步骤）
+         - [ ] 3. 最小闭环交付（做完即停，不强求完美）
+       - **🛑 ELSE（熔断底线）**：阻力过大或失控时的强制保护规则（例如：“立刻合上电脑离开工位散步15分钟，严禁坐在工位假装工作”）。
     6. 'connections': Bulleted list of related ideas, potential blind spots, or reflections.
     7. 'viewpoints_timestamps': If the raw text contains timestamps (like [MM:SS] or [HH:MM:SS]), extract a bulleted list of 5-10 key viewpoints/quotes with their exact timestamps (e.g., "- [12:34] Golden quote/viewpoint summary"). If no timestamps are present in the raw text, leave this field empty.
 
@@ -111,7 +117,13 @@ def generate_deep_structured_json(raw_text: str, context_tag: str = "") -> dict:
     2. 'title': A concise, impactful title (Core concept + Specific scenario).
     3. 'tags': A list of relevant tags (e.g., ["#DeepDive", "#PodcastInsight"]).
     4. 'core_concepts': A dense, comprehensive summary of the core insights (can be 2-3 sentences).
-    5. 'action_sop': A detailed, bulleted SOP. Step-by-step actionable guide.
+    5. 'action_sop': 【核心铁律：严禁大而化之的哲学鸡汤与空洞口号！必须强制格式化为以下【If-Then 战备决策触发器】Markdown 格式】：
+       - **🚨 IF（触发情境）**：明确客观的情绪/身体信号或具体外界场景（例如：“当准备做实盘交易下单前”、“当写完文案准备发送前”）。
+       - **🎯 THEN（极简执行清单，严禁超过3步）**：
+         - [ ] 1. 物理阻断/无脑微启动（<5秒极低摩擦动作）
+         - [ ] 2. 核心操作动作（低阻力可执行具体步骤）
+         - [ ] 3. 最小闭环交付（做完即停，不强求完美）
+       - **🛑 ELSE（熔断底线）**：阻力过大或出现冲动时的强制熔断机制（例如：“强制锁定30分钟，严禁冲动下单”）。
     6. 'connections': Bulleted list of related ideas, potential blind spots, and edge cases.
     7. 'viewpoints_timestamps': If the raw text contains timestamps (like [MM:SS] or [HH:MM:SS]), extract a dense bulleted list of 5-10 key viewpoints/quotes with their exact timestamps (e.g., "- [12:34] Golden quote/viewpoint summary"). If no timestamps are present in the raw text, leave this field empty.
 
@@ -199,7 +211,10 @@ def generate_moc_structured_json(raw_text: str, context_tag: str = "") -> dict:
     2. 'title': A concise, impactful title (Core concept).
     3. 'tags': A list of relevant tags (e.g., ["#Podcast", "#MOC"]).
     4. 'core_concepts': A comprehensive overview of the entire podcast's main thesis.
-    5. 'action_sop': A high-level actionable guide.
+    5. 'action_sop': 【核心铁律：严禁哲学鸡汤，强制使用 If-Then 战备决策触发器格式】：
+       - **🚨 IF（触发情境）**：明确客观的触发情境（身体/情绪信号或具体外界场景）
+       - **🎯 THEN（极简执行清单，<3步）**：极简无脑启动与低阻力执行
+       - **🛑 ELSE（熔断底线）**：阻力过大或失控时的强制保护规则
     6. 'connections': Bulleted list of the sub-topics that you extracted (to serve as an index).
     7. 'viewpoints_timestamps': If the raw text contains timestamps (like [MM:SS] or [HH:MM:SS]), extract a dense bulleted list of 5-10 key viewpoints/quotes with their exact timestamps (e.g., "- [12:34] Golden quote/viewpoint summary"). If no timestamps are present in the raw text, leave this field empty.
     

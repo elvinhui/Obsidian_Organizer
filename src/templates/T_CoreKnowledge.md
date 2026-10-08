@@ -9,8 +9,7 @@
 ## 💡 核心概念与启发 (Core Insight)
 > **一句话总结：** {{ core_concepts }}
 
-## 🛠️ 落地与实践 (Action & SOP)
-> **这对我现有的体系有什么帮助？如何应用？**
+## 🛠️ 落地与实践 (If-Then 战备触发器)
 {{ action_sop }}
 
 ## 🔗 盲区与关联反思 (Connections)

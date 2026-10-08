@@ -5,7 +5,10 @@ import logging
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
 
-from config import SKILLS_DIR
+try:
+    from config import SKILLS_DIR, IDEAS_DIR
+except ImportError:
+    from src.config import SKILLS_DIR, IDEAS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +20,9 @@ def clean_filename(title: str) -> str:
     """Removes invalid characters for Windows filenames."""
     return re.sub(r'[\\/*?:"<>|]', "-", title)
 
-def render_and_save(json_data: Dict[str, Any]) -> str:
+def render_and_save(json_data: dict) -> str:
     """
-    Renders the appropriate Jinja2 template and saves it to the Skills Directory.
+    Renders the appropriate Jinja2 template and saves it to the Skills or Ideas Directory.
     Returns the file path of the saved file.
     """
     category = json_data.get("category", "")
@@ -32,10 +35,12 @@ def render_and_save(json_data: Dict[str, Any]) -> str:
         template_name = "T_IdeaIncubator.md"
         status_or_feasibility = "⭐⭐ 中等 (需要查资料/花几天时间)"
         file_prefix = "💡 "
+        target_dir = IDEAS_DIR
     else:
         template_name = "T_CoreKnowledge.md"
         status_or_feasibility = "⏳ 待复习 (需要安排时间重温)"
         file_prefix = ""
+        target_dir = SKILLS_DIR
 
     template = env.get_template(template_name)
     
@@ -56,12 +61,12 @@ def render_and_save(json_data: Dict[str, Any]) -> str:
     
     rendered_content = template.render(**render_data)
     
-    # Ensure SKILLS_DIR exists
-    os.makedirs(SKILLS_DIR, exist_ok=True)
+    # Ensure target directory exists
+    os.makedirs(target_dir, exist_ok=True)
     
     safe_title = clean_filename(title)
     filename = f"{file_prefix}{safe_title}.md"
-    file_path = os.path.join(SKILLS_DIR, filename)
+    file_path = os.path.join(target_dir, filename)
     
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(rendered_content)
