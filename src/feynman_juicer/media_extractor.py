@@ -118,12 +118,13 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
         }
 
-        # 1. Resolve short link
+        # 1. Fast resolve short link without following cross-border redirect chain (0.3s)
         video_id = None
         if "v.douyin.com" in url:
             try:
-                resp = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
-                url = resp.url
+                resp = requests.get(url, headers=headers, allow_redirects=False, timeout=5)
+                location = resp.headers.get("Location") or resp.headers.get("location") or resp.url
+                url = location
                 logger.info(f"Resolved Douyin short link to: {url}")
             except Exception as e:
                 logger.warning(f"Failed to resolve short link: {e}")
@@ -143,12 +144,38 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--mute-audio',
+                    '--no-first-run',
+                    '--no-default-browser-check'
+                ]
             )
-            context = browser.new_context(
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-                viewport={'width': 1280, 'height': 800}
-            )
+
+            # Check if douyin_auth.json exists for authenticated bypass
+            auth_file = None
+            for auth_p in [
+                os.path.join(os.getcwd(), "lightsail_bot", "douyin_auth.json"),
+                os.path.join(os.getcwd(), "douyin_auth.json"),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "lightsail_bot", "douyin_auth.json")
+            ]:
+                if os.path.exists(auth_p):
+                    auth_file = auth_p
+                    break
+
+            context_kwargs = {
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                'viewport': {'width': 1280, 'height': 800}
+            }
+            if auth_file:
+                logger.info(f"Using browser auth state from: {auth_file}")
+                context_kwargs['storage_state'] = auth_file
+
+            context = browser.new_context(**context_kwargs)
             page = context.new_page()
 
             def on_res(r):
@@ -166,12 +193,17 @@ def extract_douyin_audio_playwright(url: str, output_dir: str) -> Optional[str]:
             page.on('response', on_res)
             try:
                 # Use wait_until='commit' so we don't block on heavy analytics or slow overseas assets
-                page.goto(clean_url, wait_until='commit', timeout=30000)
-                # Dynamically wait up to 15 seconds for media stream
-                for _ in range(15):
+                page.goto(clean_url, wait_until='commit', timeout=20000)
+                # Dynamically wait up to 12 seconds for media stream, dismissing popups and triggering play
+                for _ in range(12):
                     page.wait_for_timeout(1000)
                     if audio_urls or video_urls:
                         break
+                    try:
+                        page.keyboard.press("Escape")
+                        page.evaluate("document.querySelectorAll('video').forEach(v => { v.muted = true; v.play(); })")
+                    except:
+                        pass
             except Exception as e:
                 logger.warning(f"Playwright navigation warning: {e}")
             finally:
