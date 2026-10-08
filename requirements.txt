@@ -18,3 +18,10 @@ APScheduler
 plyer
 python-telegram-bot
 groq
+genanki
+feedparser
+networkx
+GitPython
+tenacity
+rich
+click
