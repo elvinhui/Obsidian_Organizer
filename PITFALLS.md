@@ -457,6 +457,10 @@ ERROR: [Douyin] 7686881421591534053: Fresh cookies (not necessarily logged in) a
    - Install `playwright` in the venv (`./venv/bin/pip install playwright`).
    - Install Chromium browser binaries and system OS dependencies (`./venv/bin/playwright install chromium && sudo ./venv/bin/playwright install-deps chromium`).
    - Launch Chromium with `--no-sandbox` and `--disable-dev-shm-usage` for resource-constrained Linux environments.
+5. **Avoid `domcontentloaded` Timeout on Cloud Datacenters**:
+   - Douyin PC SPA loads heavy analytics, trackers, and WebSockets that often delay or block the `DOMContentLoaded` event on overseas cloud IPs (Lightsail), resulting in `Page.goto: Timeout 20000ms exceeded`.
+   - **Solution**: Configure `page.goto(clean_url, wait_until='commit', timeout=30000)` which returns immediately (<0.4s) once the HTTP document commit occurs.
+   - Filter out player test video (`uuu_265.mp4`), poll dynamically for `media-audio` or `video/tos` CDN responses (capturing stream in ~3s), and compress with `ffmpeg` to 32kbps mono AAC (~5MB).
 
 ---
 
