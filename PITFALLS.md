@@ -528,6 +528,31 @@ On low-tier cloud instances (AWS Lightsail nano 512MB RAM), launching headless C
    aws lightsail start-instance --instance-name "Ubuntu-1"
    ```
 
+---
+
+## 🤖 27. Douyin Algorithm Tamer (洗白脚本) Search DOMContentLoaded Timeout & Multipart Mojibake
+
+### 🔴 Symptom
+In daily cron execution (`lightsail_bot/algo_tamer.py`), searching for Obsidian concept keywords on Douyin fails with:
+```text
+Page.goto: Timeout 30000ms exceeded.
+navigating to "https://www.douyin.com/search/...", waiting until "domcontentloaded"
+```
+Furthermore, the error notification sent to Telegram displays garbled mojibake text (e.g. `âŒ æŠ–éŸ³è„šæœ¬è¿è¡ŒæŠ¥é”™`).
+
+### 🔍 Root Cause
+1. **Slow International Analytics Delaying DOMContentLoaded**: Douyin's search page loads over 100 script bundles, analytics sensors, and tracking beacons. From overseas cloud servers (Singapore to China), waiting for `DOMContentLoaded` often exceeds 30 seconds even though search results are already rendered.
+2. **Unsanitized Keyword Thesis Titles**: Directly using note titles like `大数定律思维：从单次博弈到长期正期望值` (containing Chinese colons and 20+ characters) confuses Douyin's search query parser.
+3. **Missing Linux Headless Resource Constraints**: `algo_tamer.py` launched Chromium without `--no-sandbox`, `--disable-dev-shm-usage`, or `--js-flags=--max-old-space-size=96`, exacerbating memory pressure on the 512MB RAM VPS.
+4. **Requests Multipart Latin-1 Fallback**: In `send_telegram_photo`, passing caption in the `data` dictionary alongside `files` causes `requests` to default to `latin-1` multipart form-data encoding, garbling UTF-8 Chinese and emoji characters in Telegram.
+
+### 🟩 Verified Solution
+1. **Commit Navigation & Selector Polling**: In `algo_tamer.py`, use `await page.goto(search_url, wait_until="commit", timeout=30000)` and wait for `a[href*="/video/"]` or search cards, resolving in 2-4 seconds.
+2. **Direct Video Link Navigation**: Rather than blind pixel clicking `(300, 450)`, locate the first `a[href*="/video/"]` and navigate directly to it, ensuring clean video playback.
+3. **Keyword Sanitization**: Implemented `clean_title_to_keyword` to strip system tags and take concise concept keywords (max 12 chars).
+4. **UTF-8 Telegram Query Params**: Pass `caption` and `chat_id` via `params` query parameters in `requests.post(url, files=files, params=params)`, preventing multipart character corruption.
+
+
 
 
 

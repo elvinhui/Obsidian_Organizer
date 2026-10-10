@@ -95,8 +95,9 @@ def send_telegram_photo(photo_path, caption=""):
         url = f"https://api.telegram.org/bot{token}/sendPhoto"
         with open(photo_path, 'rb') as f:
             files = {'photo': f}
-            data = {'chat_id': chat_id, 'caption': caption}
-            requests.post(url, files=files, data=data, timeout=15)
+            # Use query params to ensure clean UTF-8 text without multipart encoding corruption
+            params = {'chat_id': str(chat_id), 'caption': caption}
+            requests.post(url, files=files, params=params, timeout=15)
     except Exception as e:
         logger.error(f"发送 Telegram 截图时发生错误: {e}")
 
@@ -124,6 +125,20 @@ def send_telegram_message(text):
         logger.error(f"发送 Telegram 消息时发生错误: {e}")
 
 
+def clean_title_to_keyword(title: str) -> str:
+    """从 Obsidian 标题提取精简、高权重的核心概念用于抖音搜索"""
+    import re
+    # 去除系统标签如 [已合并]、书名号、特殊符号
+    t = re.sub(r'\[.*?\]|\【.*?\】|#', '', title).strip()
+    # 按冒号、横杠等拆分，提取主干主题词
+    parts = re.split(r'[:：_\-—,，]', t)
+    candidate = parts[0].strip() if parts else t
+    if len(candidate) >= 3:
+        t = candidate
+    # 控制在 12 字以内，最符合抖音算法标签与搜索匹配
+    return t[:12].strip()
+
+
 def get_dynamic_keywords():
     """从 Obsidian 库中动态提取关键词（笔记标题）"""
     vault_paths = [
@@ -147,7 +162,8 @@ def get_dynamic_keywords():
     manual_file = os.path.join(vault_root, "Zeno_Keywords.md")
     if os.path.exists(manual_file):
         with open(manual_file, 'r', encoding='utf-8') as f:
-            lines = [line.strip().replace('- ', '') for line in f if line.strip() and not line.strip().startswith('#')]
+            lines = [clean_title_to_keyword(line.replace('- ', '')) for line in f if line.strip() and not line.strip().startswith('#')]
+            lines = [k for k in lines if k]
             if lines:
                 logger.info("已从 Zeno_Keywords.md 加载自定义关键词列表。")
                 return random.sample(lines, min(4, len(lines)))
@@ -162,7 +178,8 @@ def get_dynamic_keywords():
     if skills_dir and os.path.isdir(skills_dir):
         md_files = glob.glob(os.path.join(skills_dir, "*.md"))
         if md_files:
-            titles = [os.path.basename(f).replace('.md', '') for f in md_files]
+            titles = [clean_title_to_keyword(os.path.basename(f).replace('.md', '')) for f in md_files]
+            titles = [t for t in titles if t]
             sample_size = min(4, len(titles))
             chosen = random.sample(titles, sample_size)
             logger.info(f"🧠 智能提取: 已从您的技能库抽取今日知识点: {', '.join(chosen)}")
@@ -186,19 +203,38 @@ async def tame_algorithm_inner(auth_file="douyin_auth.json"):
     logger.info("🚀 启动算法反向驯化引擎 (Zeno-Flow) ...")
     
     async with async_playwright() as p:
+        # Linux 512MB RAM nano VPS low-memory optimized flags
         browser = await p.chromium.launch(
             headless=True, 
-            args=["--disable-blink-features=AutomationControlled"]
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--mute-audio",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--renderer-process-limit=1",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-breakpad",
+                "--disable-component-update",
+                "--disable-features=Translate,OptimizationHints,MediaRouter",
+                "--js-flags=--max-old-space-size=96"
+            ]
         )
         
         context = await browser.new_context(
             storage_state=auth_file,
             viewport={'width': 1280, 'height': 720},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
         )
         
         success_count = 0
         error_count = 0
+        import urllib.parse
         for keyword in keywords:
             logger.info(f"\n🎯 [开始驯化] 正在向抖音注入优质关键词: {keyword}")
             page = await context.new_page()
@@ -207,13 +243,34 @@ async def tame_algorithm_inner(auth_file="douyin_auth.json"):
             await stealth.apply_stealth_async(page)
             
             try:
-                search_url = f"https://www.douyin.com/search/{keyword}"
-                await page.goto(search_url, wait_until="domcontentloaded")
-                await page.wait_for_timeout(4000)
+                encoded_kw = urllib.parse.quote(keyword)
+                search_url = f"https://www.douyin.com/search/{encoded_kw}"
+                logger.info(f"🌐 导航至搜索页: {search_url}")
+                # Use wait_until="commit" so we don't stall on slow international analytics scripts
+                await page.goto(search_url, wait_until="commit", timeout=30000)
                 
-                logger.info("🖱️ 尝试通过绝对坐标点击第一个视频卡片...")
-                await page.mouse.click(300, 450)
-                await page.wait_for_timeout(3000)
+                # Wait for search results to render
+                try:
+                    await page.wait_for_selector('a[href*="/video/"], [data-e2e="search-card"], div[class*="video"]', timeout=15000)
+                except Exception:
+                    await page.wait_for_timeout(4000)
+                
+                logger.info("🎯 寻找搜索结果中的首个视频...")
+                video_link = await page.query_selector('a[href*="/video/"]')
+                if video_link:
+                    href = await video_link.get_attribute('href')
+                    if href:
+                        target_url = f"https://www.douyin.com{href}" if href.startswith('/') else href
+                        logger.info(f"▶️ 直接进入视频: {target_url[:80]}...")
+                        await page.goto(target_url, wait_until="commit", timeout=25000)
+                        await page.wait_for_timeout(3000)
+                    else:
+                        await video_link.click()
+                        await page.wait_for_timeout(3000)
+                else:
+                    logger.info("🖱️ 未找到明确链接，尝试点击卡片区域...")
+                    await page.mouse.click(360, 420)
+                    await page.wait_for_timeout(3000)
                 
                 watch_time = random.randint(15000, 25000)
                 logger.info(f"📺 静默播放中，强制停留 {watch_time/1000} 秒以拉满推荐权重...")
